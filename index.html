@@ -1,599 +1,415 @@
-Вот полный, готовый к использованию код (index.html).
-Что изменено и улучшено:
- * Реальные исторические данные: При запуске терминал загружает последние 100 свечей (10-минутный таймфрейм) с Московской Биржи (MOEX). График сразу строится на реальных данных.
- * Актуальность: Данные обновляются каждые 15 секунд. График не "спамит" точками каждую секунду, а аккуратно обновляет последнюю точку или создает новую, если прошло 10 минут.
- * CORS Прокси: Встроена поддержка нескольких прокси-серверов, так как прямые запросы к MOEX из браузера часто блокируются политикой безопасности.
- * AI Анализ: Индикаторы (RSI, MACD, EMA) теперь считаются по реальной истории, поэтому советы AI будут обоснованными.
-Сохраните этот код как .html файл и откройте в браузере.
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>USD/RUB AI Trading Terminal | DeepSeek-v3.2</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <title>Si AI Terminal | Stable</title>
+    <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
-        /* --- STYLES --- */
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        :root {
-            --bg-dark: #0a0e1a;
-            --bg-card: #111827;
-            --bg-hover: #1f2937;
-            --border: #374151;
-            --text-primary: #f3f4f6;
-            --text-secondary: #9ca3af;
-            --accent-buy: #10b981;
-            --accent-sell: #ef4444;
-            --accent-hold: #f59e0b;
-            --accent-info: #3b82f6;
-            --accent-ai: #8b5cf6;
-            --gradient-ai: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-        body {
-            font-family: 'JetBrains Mono', 'Consolas', monospace;
-            background: var(--bg-dark);
-            color: var(--text-primary);
-            min-height: 100vh;
-            overflow-x: hidden;
-        }
-        .app-container {
-            display: grid;
-            grid-template-columns: 300px 1fr 350px;
-            grid-template-rows: 70px 1fr 220px;
-            height: 100vh;
-            gap: 1px;
-            background: var(--border);
-        }
-        .header {
-            grid-column: 1 / -1;
-            background: var(--bg-card);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 25px;
-            border-bottom: 2px solid var(--border);
-        }
-        .logo { display: flex; align-items: center; gap: 15px; }
-        .logo-icon {
-            width: 45px; height: 45px;
-            background: linear-gradient(135deg, #ffffff 0%, #0039a6 50%, #d52b1e 100%);
-            border-radius: 8px; display: flex; align-items: center; justify-content: center;
-            font-size: 1.5em; border: 2px solid rgba(255,255,255,0.3);
-        }
-        .logo-text h1 { font-size: 1.3em; margin: 0; background: linear-gradient(45deg, #fff, #9ca3af); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .logo-text p { font-size: 0.75em; color: var(--text-secondary); margin: 0; }
-        .connection-status { display: flex; align-items: center; gap: 20px; font-size: 0.85em; }
-        .status-item { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--bg-dark); border-radius: 20px; border: 1px solid var(--border); }
-        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-sell); transition: all 0.3s; }
-        .status-dot.active { background: var(--accent-buy); box-shadow: 0 0 8px var(--accent-buy); animation: pulse 2s infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #8957e5; --buy: #238636; --sell: #f85149; --hold: #d29922; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 12px; min-height: 100vh; }
+        h2 { text-align: center; font-size: clamp(1.1rem, 4vw, 1.6rem); margin: 0 0 12px 0; }
+        .grid { display: grid; grid-template-columns: 2.2fr 1fr; gap: 16px; max-width: 1600px; margin: 0 auto; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
         
-        .sidebar-left, .sidebar-right { background: var(--bg-card); padding: 20px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
-        .panel-title { font-size: 0.7em; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-secondary); margin-bottom: 12px; font-weight: 700; }
+        #chart { height: 400px; width: 100%; position: relative; background: var(--card); border-radius: 12px; overflow: hidden; }
+        .tf-selector { display: flex; gap: 6px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        .tf-btn { background: transparent; color: var(--text); border: 1px solid transparent; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; opacity: 0.6; }
+        .tf-btn.active { background: var(--accent); color: white; opacity: 1; }
         
-        .api-section { background: var(--bg-hover); border-radius: 12px; padding: 20px; border: 1px solid var(--border); }
-        .api-input { width: 100%; background: var(--bg-dark); border: 1px solid var(--border); color: var(--text-primary); padding: 12px; border-radius: 8px; margin-bottom: 12px; }
-        .btn { width: 100%; padding: 12px; border-radius: 8px; cursor: pointer; font-weight: 600; border: 1px solid var(--border); background: var(--bg-dark); color: var(--text-primary); }
-        .btn:hover:not(:disabled) { background: var(--border); }
-        .btn-ai { background: var(--gradient-ai); border: none; color: white; }
+        .ticker-wrap { display: flex; justify-content: space-between; background: #0d1117; padding: 12px; border-radius: 12px; margin-bottom: 12px; border: 1px solid var(--border); }
+        .ticker-val { font-size: 24px; font-weight: 700; font-family: 'Courier New'; }
+        .ticker-label { font-size: 10px; color: #8b949e; margin-bottom: 2px; }
         
-        .main-content { background: var(--bg-dark); display: flex; flex-direction: column; position: relative; }
-        .chart-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 25px; background: var(--bg-card); border-bottom: 1px solid var(--border); }
-        .current-price { font-size: 2.5em; font-weight: 700; letter-spacing: -1px; }
-        .price-change { font-size: 1.2em; padding: 6px 12px; border-radius: 6px; font-weight: 700; }
-        .price-change.positive { background: rgba(16, 185, 129, 0.2); color: var(--accent-buy); }
-        .price-change.negative { background: rgba(239, 68, 68, 0.2); color: var(--accent-sell); }
+        .signal-display { text-align: center; padding: 12px; border-radius: 16px; border: 2px solid var(--border); margin-bottom: 12px; transition: 0.3s; }
+        .signal-display.buy { border-color: var(--buy); color: #3fb950; background: rgba(35, 134, 54, 0.1); }
+        .signal-display.sell { border-color: var(--sell); color: var(--sell); background: rgba(248, 81, 73, 0.1); }
+        .signal-display.hold { border-color: var(--hold); color: var(--hold); background: rgba(210, 153, 34, 0.1); }
         
-        .market-stats { display: flex; gap: 25px; font-size: 0.9em; }
-        .stat-value { font-weight: 700; margin-top: 4px; }
+        .trade-plan-box { margin-top: 10px; background: #0d1117; border-radius: 12px; padding: 10px; border: 1px solid var(--border); display: none; }
+        .plan-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+        .plan-row:last-child { border-bottom: none; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
         
-        .chart-container { flex: 1; position: relative; padding: 25px; }
-        .ai-panel { position: absolute; top: 90px; right: 25px; width: 320px; background: rgba(17, 24, 39, 0.95); backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: 16px; padding: 25px; z-index: 100; box-shadow: 0 25px 60px rgba(0,0,0,0.8); }
+        .news-box { margin-top: 12px; max-height: 180px; overflow-y: auto; font-size: 12px; }
+        .news-item { padding: 8px; border-left: 2px solid var(--accent); margin-bottom: 6px; background: rgba(255,255,255,0.02); }
+        .news-time { color: #58a6ff; font-size: 10px; font-weight: 600; margin-bottom: 2px; display: block; }
         
-        .signal-box { text-align: center; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 2px solid transparent; }
-        .signal-buy { border-color: var(--accent-buy); background: rgba(16, 185, 129, 0.1); }
-        .signal-sell { border-color: var(--accent-sell); background: rgba(239, 68, 68, 0.1); }
-        .signal-hold { border-color: var(--accent-hold); background: rgba(245, 158, 11, 0.1); }
-        .signal-text { font-size: 2.2em; font-weight: 800; text-transform: uppercase; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+        .stat-item { background: #0d1117; padding: 8px; border-radius: 6px; font-size: 12px; border: 1px solid var(--border); }
         
-        .detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.85em; }
-        .ai-reasoning { margin-top: 20px; padding: 15px; background: var(--bg-dark); border-radius: 8px; border-left: 3px solid var(--accent-ai); font-size: 0.85em; line-height: 1.6; color: var(--text-secondary); max-height: 120px; overflow-y: auto; }
+        button { background: var(--accent); color: white; border: none; padding: 12px 16px; cursor: pointer; border-radius: 12px; width: 100%; font-weight: 600; margin-top: 10px; transition: 0.2s; }
+        button:hover { opacity: 0.9; }
+        button.small { background: #21262d; width: auto; padding: 8px 12px; margin-top: 0; font-size: 12px; }
+        
+        input { width: 100%; padding: 10px; background: #0d1117; color: white; border: 1px solid var(--border); border-radius: 10px; margin-top: 6px; font-size: 14px; }
+        
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--card); padding: 10px 20px; border-radius: 30px; border: 1px solid var(--border); z-index: 100; font-size: 12px; display: flex; align-items: center; gap: 8px; }
+        .spinner { width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .error-msg { color: var(--sell); font-size: 12px; text-align: center; margin-top: 10px; }
 
-        .bottom-panel { grid-column: 1 / -1; background: var(--bg-card); border-top: 2px solid var(--border); display: grid; grid-template-columns: 1fr 1fr 1fr; overflow: hidden; }
-        .panel-section { border-right: 1px solid var(--border); padding: 20px; overflow-y: auto; }
-        .log-entry { font-size: 0.8em; margin-bottom: 6px; padding: 4px 8px; border-left: 3px solid; background: var(--bg-dark); }
-        .log-entry.info { border-color: var(--accent-info); }
-        .log-entry.error { border-color: var(--accent-sell); }
-        .log-entry.success { border-color: var(--accent-buy); }
-
-        .indicators-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .indicator-card { background: var(--bg-dark); padding: 15px; border-radius: 8px; text-align: center; border: 1px solid var(--border); }
-
-        @media (max-width: 1200px) {
-            .app-container { grid-template-columns: 1fr; grid-template-rows: auto; }
-            .sidebar-left, .sidebar-right, .bottom-panel { display: none; }
-            .ai-panel { position: relative; top: 0; right: 0; width: 100%; margin-top: 20px; }
-        }
-        .data-points-counter { font-size: 0.75em; text-align: center; margin-top: 8px; color: var(--text-secondary); }
-        .data-points-counter.ready { color: var(--accent-buy); }
+        @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
+    <h2>Si AI Terminal | Real-time</h2>
 
-<div class="app-container">
-    <header class="header">
-        <div class="logo">
-            <div class="logo-icon">🇷🇺</div>
-            <div class="logo-text">
-                <h1>USD/RUB Pro Terminal</h1>
-                <p>DeepSeek-v3.2 AI • Real-Time MOEX • CBRF</p>
+    <div class="grid">
+        <!-- LEFT -->
+        <div class="card">
+            <div class="tf-selector" id="tfSelector">
+                <button class="tf-btn active" data-tf="15" type="button">15M</button>
+                <button class="tf-btn" data-tf="60" type="button">1H</button>
+                <button class="tf-btn" data-tf="1440" type="button">1D</button>
             </div>
-        </div>
-        <div class="connection-status">
-            <div class="status-item"><span>MOEX:</span><div class="status-dot" id="moex-status"></div></div>
-            <div class="status-item"><span>AI:</span><div class="status-dot" id="ai-status"></div></div>
-        </div>
-    </header>
-
-    <aside class="sidebar-left">
-        <div>
-            <div class="panel-title">🔐 API Configuration</div>
-            <div class="api-section">
-                <input type="password" class="api-input" id="openrouter-key" placeholder="OpenRouter API Key (sk-or-...)">
-                <button class="btn btn-ai" onclick="validateApiKey()" id="validate-btn">Connect AI</button>
-                <div class="data-points-counter" id="data-counter">Data points: 0/14 (need 14 for RSI)</div>
-            </div>
-        </div>
-        <div>
-            <div class="panel-title">📡 Data Sources</div>
-            <div class="api-section">
-                <div style="font-size: 0.8em; margin-bottom: 5px;">Primary: MOEX (Moscow Exchange)</div>
-                <div style="font-size: 0.8em; color: var(--text-secondary);">Candles: 10 min | Delay: ~15m</div>
-            </div>
-        </div>
-    </aside>
-
-    <main class="main-content">
-        <div class="chart-header">
-            <div>
-                <div class="current-price" id="main-price">--.----</div>
-                <div class="price-change" id="main-change">--</div>
-            </div>
-            <div class="market-stats">
-                <div><div class="panel-title">Open</div><div class="stat-value" id="stat-open">--</div></div>
-                <div><div class="panel-title">High</div><div class="stat-value" id="stat-high" style="color:var(--accent-buy)">--</div></div>
-                <div><div class="panel-title">Low</div><div class="stat-value" id="stat-low" style="color:var(--accent-sell)">--</div></div>
-            </div>
-        </div>
-
-        <div class="chart-container">
-            <canvas id="tradingChart"></canvas>
             
-            <div class="ai-panel">
-                <div style="display:flex; align-items:center; gap:10px; margin-bottom:15px;">
-                    <div style="font-size:1.5em;">🧠</div>
-                    <div><b>DeepSeek-v3.2 Analysis</b><div style="font-size:0.7em; color:var(--text-secondary)" id="last-analysis">Waiting...</div></div>
+            <div id="chart"><div id="loading"><div class="spinner"></div> Загрузка...</div></div>
+            
+            <div style="display: flex; justify-content: space-between; margin-top: 6px; padding: 0 4px; font-size: 11px; color: #8b949e;">
+                <span id="contractName">Контракт: --</span>
+                <span id="lastTradeTime">--</span>
+            </div>
+
+            <div class="news-box" id="newsBox">
+                <div style="font-weight: 600; color: var(--accent); margin-bottom: 8px;">Новости</div>
+                <div id="newsList">Загрузка...</div>
+            </div>
+        </div>
+
+        <!-- RIGHT -->
+        <div class="card">
+            <div class="ticker-wrap">
+                <div style="text-align: left;">
+                    <div class="ticker-label">ПОСЛЕДНЯЯ ЦЕНА</div>
+                    <div class="ticker-val" id="currentPrice">--</div>
                 </div>
-                
-                <div class="signal-box signal-hold" id="ai-signal-box">
-                    <div class="signal-text" id="ai-signal">WAIT</div>
-                    <div style="font-size:0.8em; margin-top:5px;">Confidence: <span id="confidence-text">0%</span></div>
+                <div style="text-align: right;">
+                    <div class="ticker-label">ИЗМЕНЕНИЕ</div>
+                    <div class="ticker-val" id="changePercent">--</div>
                 </div>
+            </div>
 
-                <div class="detail-row"><span>Technical Score</span><span id="tech-score">--</span></div>
-                <div class="detail-row"><span>Trend</span><span id="trend-score">--</span></div>
-                <div class="detail-row"><span>Suggestion</span><span id="suggested-entry" style="color:var(--accent-info)">--</span></div>
+            <div id="signal_ui" class="signal-display hold">
+                <div style="font-size: 10px; opacity: 0.7;">СИГНАЛ</div>
+                <div id="signal_text" style="font-size: 24px; font-weight: bold;">ОЖИДАНИЕ</div>
+                <div id="signal_confidence" style="font-size: 11px; margin-top: 2px;"></div>
+            </div>
 
-                <div class="ai-reasoning" id="ai-reasoning">Connect API key to start analysis.</div>
-                <button class="btn btn-ai" onclick="forceAnalysis()" id="analyze-btn" disabled style="margin-top:10px">Analyze Now</button>
+            <div id="tradePlanBox" class="trade-plan-box">
+                <div style="text-align: center; font-size: 11px; font-weight: 600; color: var(--accent); margin-bottom: 6px;">ТОРГОВЫЙ ПЛАН</div>
+                <div class="plan-row"><span><span class="dot" style="background: #58a6ff;"></span>Entry</span><span id="aiEntry" style="color: #58a6ff">--</span></div>
+                <div class="plan-row"><span><span class="dot" style="background: var(--buy);"></span>TP</span><span id="aiTP" style="color: var(--buy)">--</span></div>
+                <div class="plan-row"><span><span class="dot" style="background: var(--sell);"></span>SL</span><span id="aiSL" style="color: var(--sell)">--</span></div>
             </div>
-        </div>
-    </main>
 
-    <aside class="sidebar-right">
-        <div class="panel-title">📊 Technical Indicators</div>
-        <div class="indicators-grid">
-            <div class="indicator-card">
-                <div style="font-size:0.8em; color:var(--text-secondary)">RSI (14)</div>
-                <div class="stat-value" id="ind-rsi">--</div>
-            </div>
-            <div class="indicator-card">
-                <div style="font-size:0.8em; color:var(--text-secondary)">MACD</div>
-                <div class="stat-value" id="ind-macd">--</div>
-            </div>
-            <div class="indicator-card">
-                <div style="font-size:0.8em; color:var(--text-secondary)">EMA 20</div>
-                <div class="stat-value" id="ind-ema">--</div>
-            </div>
-            <div class="indicator-card">
-                <div style="font-size:0.8em; color:var(--text-secondary)">ATR</div>
-                <div class="stat-value" id="ind-atr">--</div>
-            </div>
-        </div>
-    </aside>
+            <div id="ai_desc" class="error-msg" style="display:none;"></div>
 
-    <div class="bottom-panel">
-        <div class="panel-section">
-            <div class="panel-title">📝 System Log</div>
-            <div id="system-log" style="height:100px; overflow-y:auto;"></div>
-        </div>
-        <div class="panel-section">
-            <div class="panel-title">💼 Positions</div>
-            <div style="text-align:center; padding:20px; color:var(--text-secondary)">No open positions</div>
+            <div class="stats-grid" id="statsGrid" style="display: none;">
+                <div class="stat-item"><div style="color: #8b949e; font-size: 10px;">RSI</div><div id="statRsi" style="font-weight: 600;">-</div></div>
+                <div class="stat-item"><div style="color: #8b949e; font-size: 10px;">ATR</div><div id="statAtr" style="font-weight: 600;">-</div></div>
+                <div class="stat-item"><div style="color: #8b949e; font-size: 10px;">MACD</div><div id="statMacd" style="font-weight: 600;">-</div></div>
+                <div class="stat-item"><div style="color: #8b949e; font-size: 10px;">Тренд</div><div id="statTrend" style="font-weight: 600;">-</div></div>
+            </div>
+
+            <button onclick="runAnalysis()" type="button"> КОМПЛЕКСНЫЙ АНАЛИЗ</button>
+
+            <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border);">
+                <label style="font-size: 11px;">API Key:</label>
+                <input type="password" id="api_key_input" placeholder="sk-or-..." value="">
+                <button class="small" onclick="saveKey()" style="margin-top: 4px; width: 100%;">Сохранить</button>
+            </div>
         </div>
     </div>
-</div>
 
-<script>
-    // ==================== CONFIGURATION ====================
-    const CONFIG = {
-        openrouter: {
-            url: 'https://openrouter.ai/api/v1',
-            models: { v3: 'deepseek/deepseek-chat' },
-            siteUrl: window.location.href,
-            siteName: 'USD/RUB Terminal'
-        },
-        storageKey: 'openrouter_api_key_v2',
-        dataSources: {
-            proxies: [
-                'https://api.allorigins.win/raw?url=',
-                'https://api.codetabs.com/v1/proxy?quest=',
-                'https://corsproxy.io/?'
-            ],
-            // ISS MOEX API: Real history candles (10 min interval)
-            moexCandles: 'https://iss.moex.com/iss/engines/currency/markets/selt/securities/USD000UTSTOM/candles.json?iss.meta=off&interval=10',
-            // Current snapshot
-            moexCurrent: 'https://iss.moex.com/iss/engines/currency/markets/selt/securities/USD000UTSTOM.json?iss.meta=off&iss.only=marketdata'
-        },
-        settings: {
-            analysisInterval: 60000,
-            minDataPoints: 14,
-            maxHistoryPoints: 150
-        }
-    };
+    <script>
+        // ==================== CONFIG ==================
+        const MOEX_BASE = "https://iss.moex.com/iss/engines/futures/markets/forts";
+        
+        let currentTicker = null;
+        let chart = null;
+        let candleSeries = null;
+        let priceLines = [];
+        let historyData = [];
+        let allNews = [];
+        let currentTf = 15;
 
-    // ==================== STATE ====================
-    let state = {
-        apiKey: null,
-        priceHistory: [], // {time, price}
-        currentPrice: null,
-        indicators: {},
-        chart: null,
-        lastAnalysis: null,
-        dayOpen: null,
-        dayHigh: null,
-        dayLow: null,
-        analysisInProgress: false
-    };
+        // ==================== 1. SMART TICKER ====================
+        const antiCache = () => `_=${Date.now()}`;
 
-    // ==================== UTILS ====================
-    function log(msg, type='info') {
-        const div = document.getElementById('system-log');
-        const entry = document.createElement('div');
-        entry.className = `log-entry ${type}`;
-        entry.innerHTML = `<span style="opacity:0.7">[${new Date().toLocaleTimeString()}]</span> ${msg}`;
-        div.prepend(entry);
-    }
-
-    async function fetchWithProxy(targetUrl) {
-        // Try direct first (rarely works for MOEX due to CORS)
-        try {
-            const controller = new AbortController();
-            setTimeout(() => controller.abort(), 3000);
-            const res = await fetch(targetUrl, { signal: controller.signal });
-            if (res.ok) return res;
-        } catch(e) {}
-
-        // Try proxies
-        for (const proxy of CONFIG.dataSources.proxies) {
+        async function detectActiveContract() {
+            const loading = document.getElementById('loading');
+            loading.style.display = 'flex';
+            loading.innerHTML = '<div class="spinner"></div> Поиск актива...';
+            
+            const url = `${MOEX_BASE}/securities.json?q=Si&iss.only=marketdata,securities&${antiCache()}`;
             try {
-                const url = proxy + encodeURIComponent(targetUrl);
                 const res = await fetch(url);
-                if (res.ok) return res;
-            } catch (e) { console.warn('Proxy failed:', proxy); }
-        }
-        throw new Error('All connection methods failed');
-    }
-
-    // ==================== DATA CORE ====================
-    
-    // 1. Load History (Real MOEX Data)
-    async function loadHistory() {
-        try {
-            log('Loading historical candles from MOEX...', 'info');
-            // Get last 100 candles (10 min interval)
-            const response = await fetchWithProxy(CONFIG.dataSources.moexCandles + '&start=0');
-            const json = await response.json();
-            
-            // Handle MOEX JSON structure
-            const data = json.candles || (json.history ? json.history : null);
-            if (!data || !data.data) throw new Error('Invalid MOEX data format');
-
-            const cols = data.columns;
-            const rows = data.data;
-            const idxClose = cols.indexOf('close');
-            const idxEnd = cols.indexOf('end');
-            const idxHigh = cols.indexOf('high');
-            const idxLow = cols.indexOf('low');
-
-            state.priceHistory = rows.map(r => ({
-                time: new Date(r[idxEnd]),
-                price: r[idxClose],
-                high: r[idxHigh],
-                low: r[idxLow]
-            }));
-
-            // Calc Day stats from history
-            if (state.priceHistory.length > 0) {
-                const prices = state.priceHistory.map(p => p.price);
-                state.dayHigh = Math.max(...prices);
-                state.dayLow = Math.min(...prices);
-                state.currentPrice = prices[prices.length-1];
+                const data = await res.json();
+                const cols = data.marketdata.columns;
+                const rows = data.marketdata.data;
                 
-                log(`Loaded ${state.priceHistory.length} candles.`, 'success');
-                updateChart();
-                calculateIndicators();
-                updateUI(state.currentPrice);
+                let best = { ticker: 'SiH6', vol: 0 }; // Default fallback
+                const idxVol = cols.indexOf('VALTODAY');
+                const secCols = data.securities.columns;
+                const secRows = data.securities.data;
+                const idxSecId = secCols.indexOf('SECID');
+
+                rows.forEach((row, i) => {
+                    const secId = secRows[i] ? secRows[i][idxSecId] : '';
+                    if (!secId.startsWith('Si')) return;
+                    const vol = row[idxVol] || 0;
+                    if (vol > best.vol) best = { ticker: secId, vol: vol };
+                });
+
+                currentTicker = best.ticker;
+                document.getElementById('contractName').innerText = `Контракт: ${currentTicker}`;
+                return true;
+            } catch(e) {
+                console.error("Detection error", e);
+                currentTicker = "SiH6";
+                return false;
             }
-            return true;
-        } catch (e) {
-            log('History Load Error: ' + e.message, 'error');
-            return false;
         }
-    }
 
-    // 2. Update Current Price
-    async function updateMarketData() {
-        try {
-            const response = await fetchWithProxy(CONFIG.dataSources.moexCurrent + '&_=' + Date.now());
-            const json = await response.json();
-            
-            // Parse Market Data
-            const md = json.marketdata;
-            if (!md || !md.data[0]) throw new Error('No market data');
-            
-            const cols = md.columns;
-            const vals = md.data[0];
-            const getVal = (name) => vals[cols.indexOf(name)];
-            
-            const price = getVal('LAST') || getVal('LCURRENTPRICE');
-            if (!price) return; // Market closed or no deal
+        // ==================== 2. DATA ==================
+        async function fetchQuotes() {
+            if(!currentTicker) return;
+            const url = `${MOEX_BASE}/securities/${currentTicker}.json?iss.only=marketdata&${antiCache()}`;
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                const cols = data.marketdata.columns;
+                const row = data.marketdata.data[0];
+                if(!row) return;
+                
+                const idx = { last: cols.indexOf('LAST'), chg: cols.indexOf('CHANGE'), time: cols.indexOf('SYSTIME'), prev: cols.indexOf('PREVPRICE') };
+                
+                const quote = {
+                    price: row[idx.last],
+                    change: row[idx.chg],
+                    prev: row[idx.prev],
+                    time: row[idx.time]
+                };
+                
+                updatePriceUI(quote);
+                return quote;
+            } catch(e) { console.error("Quote error", e); }
+        }
 
-            state.currentPrice = price;
+        async function fetchCandles(tf = 15) {
+            if(!currentTicker) return;
+            const loading = document.getElementById('loading');
+            loading.style.display = 'flex';
             
-            // Update History Logic:
-            // Don't add a point every second. Only if time > last candle + 10 mins OR update last candle
-            const now = new Date();
-            const lastCandle = state.priceHistory[state.priceHistory.length - 1];
+            const d = new Date();
+            d.setDate(d.getDate() - 7);
+            const from = d.toISOString().split('T')[0];
             
-            if (lastCandle && (now - lastCandle.time) < 10 * 60 * 1000) {
-                // Update last candle (it's still forming)
-                lastCandle.price = price;
-                lastCandle.time = now; // keep time moving for visual
-            } else {
-                // New candle
-                state.priceHistory.push({ time: now, price: price });
-                if (state.priceHistory.length > CONFIG.settings.maxHistoryPoints) state.priceHistory.shift();
+            const url = `${MOEX_BASE}/securities/${currentTicker}/candles.json?interval=${tf}&from=${from}&${antiCache()}`;
+            
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                
+                // CHECK DATA
+                if (!data.candles?.data?.length) throw new Error("Нет свечей");
+
+                const cols = data.candles.columns;
+                const idx = { o: cols.indexOf('open'), c: cols.indexOf('close'), h: cols.indexOf('high'), l: cols.indexOf('low'), t: cols.indexOf('begin') };
+
+                historyData = data.candles.data.map(r => ({
+                    time: Math.floor(new Date(r[idx.t]).getTime() / 1000),
+                    open: r[idx.o], high: r[idx.h], low: r[idx.l], close: r[idx.c]
+                })).filter(c => c.close > 0);
+
+                renderChart(historyData);
+            } catch(e) {
+                loading.innerHTML = `<span style='color:var(--sell); font-size:12px;'>Ошибка: ${e.message}</span>`;
             }
-
-            // Update UI
-            updateUI(price);
-            updateChart();
-            calculateIndicators();
-            
-            document.getElementById('moex-status').classList.add('active');
-        } catch (e) {
-            // Quiet fail
-            document.getElementById('moex-status').classList.remove('active');
+            loading.style.display = 'none';
         }
-    }
 
-    function updateUI(price) {
-        document.getElementById('main-price').textContent = price.toFixed(4);
-        document.getElementById('stat-high').textContent = state.dayHigh?.toFixed(4);
-        document.getElementById('stat-low').textContent = state.dayLow?.toFixed(4);
-        
-        const counter = document.getElementById('data-counter');
-        counter.textContent = `Data points: ${state.priceHistory.length}/${CONFIG.settings.minDataPoints}`;
-        if(state.priceHistory.length >= CONFIG.settings.minDataPoints) counter.classList.add('ready');
+        async function fetchNews() {
+            const list = document.getElementById('newsList');
+            const query = encodeURIComponent('ЦБ РФ OR Brent OR Курс доллара');
+            const rss = `https://news.google.com/rss/search?q=${query}&hl=ru&gl=RU&ceid=RU:ru`;
+            const api = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rss)}&count=8`;
 
-        // Calculate change based on history[0] (start of loaded period) or day open
-        const startPrice = state.priceHistory[0]?.price || price;
-        const change = ((price - startPrice) / startPrice * 100);
-        const changeEl = document.getElementById('main-change');
-        changeEl.textContent = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
-        changeEl.className = 'price-change ' + (change >= 0 ? 'positive' : 'negative');
-    }
+            try {
+                const res = await fetch(api);
+                const data = await res.json();
+                if(data.status !== 'ok') throw new Error();
+                
+                const now = new Date();
+                allNews = data.items.filter(n => ((now - new Date(n.pubDate))/3600000) < 48).slice(0, 5);
+                if(allNews.length === 0) allNews = data.items.slice(0, 3);
 
-    // ==================== INDICATORS ====================
-    function calculateIndicators() {
-        const prices = state.priceHistory.map(p => p.price);
-        if (prices.length < CONFIG.settings.minDataPoints) return;
-
-        // RSI
-        const rsi = calcRSI(prices, 14);
-        document.getElementById('ind-rsi').textContent = rsi.toFixed(1);
-        document.getElementById('ind-rsi').style.color = rsi > 70 ? 'var(--accent-sell)' : rsi < 30 ? 'var(--accent-buy)' : 'var(--text-secondary)';
-
-        // EMA
-        const ema20 = calcEMA(prices, 20);
-        document.getElementById('ind-ema').textContent = ema20.toFixed(2);
-
-        // MACD (12, 26, 9)
-        const macd = calcMACD(prices);
-        document.getElementById('ind-macd').textContent = macd.histogram.toFixed(4);
-        document.getElementById('ind-macd').style.color = macd.histogram > 0 ? 'var(--accent-buy)' : 'var(--accent-sell)';
-
-        state.indicators = { rsi, ema20, macd, current: prices[prices.length-1] };
-    }
-
-    function calcEMA(prices, period) {
-        const k = 2 / (period + 1);
-        let ema = prices[0];
-        for (let i = 1; i < prices.length; i++) ema = prices[i] * k + ema * (1 - k);
-        return ema;
-    }
-
-    function calcRSI(prices, period) {
-        let gains = 0, losses = 0;
-        for (let i = prices.length - period; i < prices.length; i++) {
-            const diff = prices[i] - prices[i-1];
-            if (diff >= 0) gains += diff; else losses -= diff;
+                list.innerHTML = allNews.map(n => {
+                    const hrs = Math.round((now - new Date(n.pubDate))/3600000);
+                    return `<div class="news-item"><span class="news-time">${hrs}ч назад</span><a href="${n.link}" target="_blank" style="color:var(--text);text-decoration:none;">${n.title}</a></div>`;
+                }).join('');
+            } catch(e) {
+                list.innerHTML = "<div style='color:var(--sell)'>Ошибка новостей</div>";
+            }
         }
-        if (losses === 0) return 100;
-        return 100 - (100 / (1 + (gains/period)/(losses/period)));
-    }
 
-    function calcMACD(prices) {
-        const ema12 = calcEMA(prices, 12);
-        const ema26 = calcEMA(prices, 26);
-        const line = ema12 - ema26;
-        // Simplified Signal line (approx)
-        return { histogram: line - (line * 0.2) }; 
-    }
+        // ==================== 3. CHART ==================
+        function renderChart(data) {
+            const cont = document.getElementById('chart');
+            cont.innerHTML = '';
+            priceLines = [];
 
-    // ==================== AI LOGIC ====================
-    async function performAnalysis() {
-        if (!state.apiKey || state.priceHistory.length < 14) return;
-        
-        const btn = document.getElementById('analyze-btn');
-        btn.innerHTML = 'Analyzing...';
-        btn.disabled = true;
-
-        const ind = state.indicators;
-        const prompt = `
-        Asset: USD/RUB. Current Price: ${state.currentPrice}.
-        Indicators (Real Data):
-        RSI(14): ${ind.rsi.toFixed(1)}
-        EMA(20): ${ind.ema20.toFixed(2)}
-        MACD Hist: ${ind.macd.histogram.toFixed(4)}
-        
-        Analyze technicals. Return JSON:
-        { "signal": "BUY"|"SELL"|"HOLD", "confidence": 0-100, "reasoning": "Short Russian text", "tech_score": 0-100, "entry": number }
-        `;
-
-        try {
-            const res = await fetch(`${CONFIG.openrouter.url}/chat/completions`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${state.apiKey}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    model: CONFIG.openrouter.models.v3,
-                    messages: [{role: 'user', content: prompt}],
-                    response_format: { type: 'json_object' } // Force JSON if supported
-                })
+            chart = LightweightCharts.createChart(cont, {
+                layout: { background: { color: '#161b22' }, textColor: '#8b949e' },
+                grid: { vertLines: { color: '#222' }, horzLines: { color: '#222' } },
+                timeScale: { timeVisible: true },
+                width: cont.clientWidth, height: 400
             });
-
-            const data = await res.json();
-            const result = JSON.parse(data.choices[0].message.content);
-            updateAISignal(result);
-            log('AI Analysis complete', 'success');
-        } catch (e) {
-            log('AI Error: ' + e.message, 'error');
-            // Fallback mock result for UI testing
-            updateAISignal({
-                signal: ind.rsi < 30 ? 'BUY' : ind.rsi > 70 ? 'SELL' : 'HOLD',
-                confidence: 65,
-                reasoning: "Ошибка AI, использован локальный фоллбек алгоритм.",
-                tech_score: 50
-            });
-        } finally {
-            btn.innerHTML = 'Analyze Now';
-            btn.disabled = false;
+            candleSeries = chart.addCandlestickSeries({ upColor: '#238636', downColor: '#f85149', borderVisible: false });
+            candleSeries.setData(data);
+            chart.timeScale().fitContent();
         }
-    }
 
-    function updateAISignal(res) {
-        const box = document.getElementById('ai-signal-box');
-        box.className = `signal-box signal-${res.signal.toLowerCase()}`;
-        document.getElementById('ai-signal').textContent = res.signal;
-        document.getElementById('confidence-text').textContent = res.confidence + '%';
-        document.getElementById('ai-reasoning').textContent = res.reasoning;
-        document.getElementById('tech-score').textContent = res.tech_score + '/100';
-        document.getElementById('suggested-entry').textContent = res.entry || state.currentPrice;
-        document.getElementById('last-analysis').textContent = new Date().toLocaleTimeString();
-    }
-
-    function validateApiKey() {
-        const key = document.getElementById('openrouter-key').value;
-        if (key.startsWith('sk-or-')) {
-            state.apiKey = key;
-            localStorage.setItem(CONFIG.storageKey, key);
-            log('API Key Saved', 'success');
-            document.getElementById('analyze-btn').disabled = false;
-            document.getElementById('ai-reasoning').textContent = 'Ready to analyze.';
-            document.getElementById('ai-status').classList.add('active');
-        } else {
-            log('Invalid API Key format', 'error');
+        function drawPlan(e, tp, sl) {
+            if(!candleSeries) return;
+            priceLines.forEach(l => candleSeries.removePriceLine(l));
+            priceLines = [];
+            const mkLine = (p, c, t) => candleSeries.createPriceLine({ price: p, color: c, lineWidth: 2, lineStyle: 1, title: t });
+            priceLines.push(mkLine(e, '#58a6ff', 'Entry'));
+            priceLines.push(mkLine(tp, '#238636', 'TP'));
+            priceLines.push(mkLine(sl, '#f85149', 'SL'));
         }
-    }
 
-    function forceAnalysis() { performAnalysis(); }
-
-    // ==================== CHART ====================
-    function initChart() {
-        const ctx = document.getElementById('tradingChart').getContext('2d');
-        state.chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                datasets: [{
-                    label: 'USD/RUB',
-                    data: [],
-                    borderColor: '#3b82f6',
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.1,
-                    pointRadius: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false,
-                scales: {
-                    x: {
-                        type: 'time',
-                        time: { unit: 'minute', displayFormats: { minute: 'HH:mm' } },
-                        grid: { color: '#374151' },
-                        ticks: { color: '#9ca3af' }
-                    },
-                    y: {
-                        grid: { color: '#374151' },
-                        ticks: { color: '#9ca3af', callback: v => v.toFixed(2) }
-                    }
-                },
-                plugins: { legend: { display: false } }
+        // ==================== 4. UI ==================
+        function updatePriceUI(q) {
+            if(!q || !q.price) return;
+            document.getElementById('currentPrice').innerText = q.price.toFixed(2);
+            if(q.prev > 0) {
+                const pct = ((q.price - q.prev)/q.prev * 100);
+                document.getElementById('changePercent').innerText = (pct>=0?'+':'') + pct.toFixed(2)+'%';
+                document.getElementById('changePercent').style.color = pct>=0?'var(--buy)':'var(--sell)';
             }
-        });
-    }
-
-    function updateChart() {
-        if (!state.chart) return;
-        state.chart.data.datasets[0].data = state.priceHistory.map(p => ({x: p.time, y: p.price}));
-        state.chart.update('none');
-    }
-
-    // ==================== INIT ====================
-    window.addEventListener('DOMContentLoaded', async () => {
-        initChart();
-        const savedKey = localStorage.getItem(CONFIG.storageKey);
-        if (savedKey) {
-            document.getElementById('openrouter-key').value = savedKey;
-            validateApiKey();
+            if(q.time) document.getElementById('lastTradeTime').innerText = "Сделка: " + new Date(q.time).toLocaleTimeString('ru-RU');
         }
 
-        // 1. Initial Load
-        await loadHistory();
+        // ==================== 5. ANALYSIS ==================
+        function calcTech() {
+            if (historyData.length < 20) return null; // Return NULL if not enough data
+            
+            const c = historyData.map(d=>d.close);
+            let g=0,l=0;
+            for(let i=c.length-14;i<c.length;i++){ const d=c[i]-c[i-1]; if(d>0)g+=d; else l-=d; }
+            const rsi = l===0 ? 100 : 100 - (100/(1+g/l));
+            const ema = (p,per) => p.slice(1).reduce((e,v)=>v*(2/(per+1))+e*(1-2/(per+1)), p[0]);
+            const macd = ema(c,12)-ema(c,26);
+            let tr=0;
+            for(let i=historyData.length-14;i<historyData.length;i++){ const h=historyData[i].high, l=historyData[i].low, pc=historyData[i-1].close; tr+=Math.max(h-l, Math.abs(h-pc), Math.abs(l-pc)); }
+            const atr = tr/14;
 
-        // 2. Start Loops
-        setInterval(updateMarketData, 15000); // Check price every 15s
-    });
+            document.getElementById('statsGrid').style.display='grid';
+            document.getElementById('statRsi').innerText=rsi.toFixed(1);
+            document.getElementById('statAtr').innerText=atr.toFixed(2);
+            document.getElementById('statMacd').innerText=macd.toFixed(2);
+            document.getElementById('statMacd').style.color=macd>0?'var(--buy)':'var(--sell)';
+            document.getElementById('statTrend').innerText=c[c.length-1]>ema(c,20)?'BULL':'BEAR';
 
-</script>
+            return {rsi, atr, macd, price:c[c.length-1], trend: c[c.length-1]>ema(c,20)?'BULL':'BEAR'};
+        }
+
+        async function runAnalysis() {
+            const key = document.getElementById('api_key_input').value.trim();
+            if(!key) { alert("Введите API Key"); return; }
+            
+            // DATA CHECK
+            const tech = calcTech();
+            if (!tech) {
+                alert("Недостаточно данных для анализа. Подождите загрузки или выберите другой таймфрейм.");
+                return;
+            }
+
+            document.getElementById('signal_text').innerText = "АНАЛИЗ...";
+            document.getElementById('tradePlanBox').style.display = 'none';
+            document.getElementById('ai_desc').style.display = 'none';
+
+            let newsStr = "НОВОСТИ:\n";
+            if(allNews.length > 0) allNews.forEach((n,i)=>newsStr+=`${i+1}. ${n.title}\n`);
+
+            const prompt = `Ты трейдер Si.
+Цена: ${tech.price.toFixed(2)}
+RSI: ${tech.rsi.toFixed(1)}
+MACD: ${tech.macd.toFixed(2)}
+ATR: ${tech.atr.toFixed(2)}
+
+ ${newsStr}
+
+Сигнал: ПОКУПКА/ПРОДАЖА/ДЕРЖАТЬ.
+План (ATR):
+BUY: TP=Price+1.5*ATR, SL=Price-1*ATR.
+SELL: TP=Price-1.5*ATR, SL=Price+1*ATR.
+JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..." }`;
+
+            try {
+                const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({ model: "deepseek/deepseek-v3.2", messages: [{role:"user", content:prompt}] })
+                });
+                const data = await res.json();
+                if(data.error) throw new Error(data.error.message);
+                const json = parse(data.choices[0].message.content);
+                updateUI(json, tech.price);
+            } catch(e) {
+                document.getElementById('signal_text').innerText = "ОШИБКА";
+                document.getElementById('ai_desc').innerText = e.message;
+                document.getElementById('ai_desc').style.display = 'block';
+            }
+        }
+
+        function parse(s) { try { return JSON.parse(s.match(/\{[\s\S]*\}/)[0]); } catch { return {signal:"ДЕРЖАТЬ", confidence:0, reason:"err", entry:0,tp:0,sl:0}; } }
+
+        function updateUI(j, p) {
+            const ui = document.getElementById('signal_ui');
+            ui.className = "signal-display " + (j.signal==='ПОКУПКА'?'buy':j.signal==='ПРОДАЖА'?'sell':'hold');
+            document.getElementById('signal_text').innerText = j.signal;
+            document.getElementById('signal_confidence').innerText = `Уверенность: ${j.confidence}%`;
+            document.getElementById('ai_desc').innerText = j.reason;
+            document.getElementById('ai_desc').style.display = 'block';
+            
+            // Safe check for plan
+            if(j.entry && j.tp && j.sl && !isNaN(j.entry)) {
+                document.getElementById('tradePlanBox').style.display='block';
+                document.getElementById('aiEntry').innerText=j.entry.toFixed(2);
+                document.getElementById('aiTP').innerText=j.tp.toFixed(2);
+                document.getElementById('aiSL').innerText=j.sl.toFixed(2);
+                drawPlan(j.entry, j.tp, j.sl);
+            }
+        }
+
+        // ==================== INIT ==================
+        function saveKey() { localStorage.setItem('si_k', document.getElementById('api_key_input').value); alert("OK"); }
+
+        window.onload = async () => {
+            const k = localStorage.getItem('si_k');
+            if(k) document.getElementById('api_key_input').value=k;
+
+            await detectActiveContract();
+            await Promise.all([fetchQuotes(), fetchCandles(15), fetchNews()]);
+
+            setInterval(fetchQuotes, 60000);
+            setInterval(() => fetchCandles(currentTf), 900000);
+            setInterval(fetchNews, 1800000);
+
+            document.getElementById('tfSelector').onclick = (e) => {
+                const btn = e.target.closest('.tf-btn');
+                if(!btn) return;
+                document.querySelectorAll('.tf-btn').forEach(b=>b.classList.remove('active'));
+                btn.classList.add('active');
+                currentTf = parseInt(btn.dataset.tf);
+                fetchCandles(currentTf);
+            };
+        };
+    </script>
 </body>
 </html>
-
