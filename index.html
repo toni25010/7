@@ -3,122 +3,161 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Si AI Terminal | RBC News Feed</title>
+    <title>Si AI Terminal | Pro</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
-        :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #8957e5; --buy: #238636; --sell: #f85149; }
+        :root { 
+            --bg: #0d1117; 
+            --card: #161b22; 
+            --border: #30363d; 
+            --text: #c9d1d9; 
+            --accent: #58a6ff; 
+            --buy: #238636; 
+            --sell: #da3633; 
+            --hold: #d29922;
+        }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 12px; min-height: 100vh; }
-        h2 { text-align: center; font-size: clamp(1.1rem, 4vw, 1.6rem); margin: 0 0 12px 0; }
-        .grid { display: grid; grid-template-columns: 2.2fr 1fr; gap: 16px; max-width: 1600px; margin: 0 auto; }
-        .card { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
         
-        #chart { height: 400px; width: 100%; position: relative; background: var(--card); border-radius: 12px; overflow: hidden; }
-        .tf-selector { display: flex; gap: 6px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
-        .tf-btn { background: transparent; color: var(--text); border: 1px solid transparent; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; opacity: 0.6; }
-        .tf-btn.active { background: var(--accent); color: white; opacity: 1; }
+        h2 { text-align: center; font-size: 1.2rem; margin: 0 0 12px 0; color: var(--text); letter-spacing: 1px; }
         
-        .ticker-wrap { display: flex; justify-content: space-between; background: #0d1117; padding: 12px; border-radius: 12px; margin-bottom: 12px; border: 1px solid var(--border); }
-        .ticker-val { font-size: 24px; font-weight: 700; font-family: 'Courier New'; }
-        .ticker-label { font-size: 10px; color: #8b949e; margin-bottom: 2px; }
+        /* Grid Layout */
+        .grid { display: grid; grid-template-columns: 2.5fr 1fr; gap: 16px; max-width: 1600px; margin: 0 auto; height: calc(100vh - 60px); }
         
-        .signal-display { text-align: center; padding: 12px; border-radius: 16px; border: 2px solid var(--border); margin-bottom: 12px; transition: 0.3s; }
-        .signal-display.buy { border-color: var(--buy); color: #3fb950; background: rgba(35, 134, 54, 0.1); }
-        .signal-display.sell { border-color: var(--sell); color: var(--sell); background: rgba(248, 81, 73, 0.1); }
-        .signal-display.hold { border-color: #d29922; color: #d29922; background: rgba(210, 153, 34, 0.1); }
+        /* Cards */
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; overflow: hidden; }
         
-        .trade-plan-box { margin-top: 10px; background: #0d1117; border-radius: 12px; padding: 10px; border: 1px solid var(--border); display: none; }
-        .plan-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+        /* Chart Area */
+        #chart { flex-grow: 1; width: 100%; position: relative; background: var(--card); border-radius: 8px; overflow: hidden; }
+        .tf-selector { display: flex; gap: 6px; margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+        .tf-btn { background: transparent; color: var(--text); border: 1px solid var(--border); padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; transition: 0.2s; }
+        .tf-btn:hover { background: #21262d; }
+        .tf-btn.active { background: var(--accent); color: #0d1117; border-color: var(--accent); font-weight: bold; }
+        
+        /* Ticker Info */
+        .ticker-wrap { display: flex; justify-content: space-between; background: #0d1117; padding: 10px; border-radius: 8px; margin-bottom: 12px; border: 1px solid var(--border); }
+        .ticker-val { font-size: 20px; font-weight: 700; font-family: 'Courier New', monospace; letter-spacing: -1px; }
+        .ticker-label { font-size: 9px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+        
+        /* Signal Box */
+        .signal-display { text-align: center; padding: 12px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 12px; background: rgba(255,255,255,0.02); transition: 0.3s; }
+        .signal-display.buy { border-color: var(--buy); background: rgba(35, 134, 54, 0.1); color: #3fb950; }
+        .signal-display.sell { border-color: var(--sell); background: rgba(218, 54, 51, 0.1); color: #f85149; }
+        .signal-display.hold { border-color: var(--hold); background: rgba(210, 153, 34, 0.1); color: #d29922; }
+        
+        /* Trade Plan */
+        .trade-plan-box { background: #0d1117; border-radius: 8px; padding: 10px; border: 1px solid var(--border); display: none; margin-bottom: 12px; }
+        .plan-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
         .plan-row:last-child { border-bottom: none; }
-        .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+        .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 6px; }
         
-        .news-box { margin-top: 12px; max-height: 200px; overflow-y: auto; font-size: 12px; }
-        .news-item { padding: 8px; border-left: 2px solid #3b82f6; margin-bottom: 6px; background: rgba(255,255,255,0.02); }
-        .news-time { color: #60a5fa; font-size: 10px; font-weight: 600; margin-bottom: 2px; display: block; }
+        /* News Feed (FIXED STYLES) */
+        .news-container { flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+        .news-header { font-size: 11px; font-weight: 600; color: #8b949e; margin-bottom: 8px; text-transform: uppercase; }
+        .news-box { overflow-y: auto; flex-grow: 1; padding-right: 4px; scrollbar-width: thin; scrollbar-color: #30363d transparent; }
         
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
-        .stat-item { background: #0d1117; padding: 8px; border-radius: 6px; font-size: 12px; border: 1px solid var(--border); }
-        
-        button { background: var(--accent); color: white; border: none; padding: 12px 16px; cursor: pointer; border-radius: 12px; width: 100%; font-weight: 600; margin-top: 10px; transition: 0.2s; }
-        button:hover { opacity: 0.9; }
-        button.small { background: #21262d; width: auto; padding: 8px 12px; margin-top: 0; font-size: 12px; }
-        
-        input { width: 100%; padding: 10px; background: #0d1117; color: white; border: 1px solid var(--border); border-radius: 10px; margin-top: 6px; font-size: 14px; }
-        
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--card); padding: 10px 20px; border-radius: 30px; border: 1px solid var(--border); z-index: 100; font-size: 12px; display: flex; align-items: center; gap: 8px; }
-        .spinner { width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .error-msg { color: var(--sell); font-size: 12px; text-align: center; margin-top: 10px; }
+        .news-item { 
+            padding: 8px 10px; 
+            border-left: 2px solid var(--border); 
+            margin-bottom: 6px; 
+            background: rgba(255,255,255,0.03); 
+            border-radius: 0 4px 4px 0;
+            transition: 0.2s;
+        }
+        .news-item:hover { background: rgba(255,255,255,0.06); border-left-color: var(--accent); }
+        .news-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .news-source { padding: 2px 5px; border-radius: 3px; font-size: 9px; font-weight: bold; color: #fff; }
+        .news-time { color: #8b949e; font-size: 9px; }
+        .news-link { color: var(--text); text-decoration: none; font-size: 11px; line-height: 1.3; display: block; }
+        .news-link:hover { color: var(--accent); }
 
-        @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+        /* Stats Grid */
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px; display: none; }
+        .stat-item { background: #0d1117; padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border); }
+        .stat-label { color: #8b949e; font-size: 9px; margin-bottom: 2px; }
+        .stat-val { font-size: 12px; font-weight: 600; }
+        
+        /* Controls */
+        button.primary { background: var(--buy); color: white; border: none; padding: 10px; cursor: pointer; border-radius: 6px; width: 100%; font-weight: 600; font-size: 12px; transition: 0.2s; }
+        button.primary:hover { opacity: 0.9; }
+        
+        input { width: 100%; padding: 8px; background: #0d1117; color: white; border: 1px solid var(--border); border-radius: 6px; font-size: 11px; margin-top: 4px; }
+        
+        /* Loader */
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--card); padding: 8px 16px; border-radius: 20px; border: 1px solid var(--border); z-index: 10; font-size: 11px; display: flex; align-items: center; gap: 8px; }
+        .spinner { width: 10px; height: 10px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .error-msg { color: var(--sell); font-size: 10px; margin-top: 8px; line-height: 1.3; display: none; background: rgba(218, 54, 51, 0.1); padding: 6px; border-radius: 4px; }
+
+        @media (max-width: 900px) { .grid { grid-template-columns: 1fr; height: auto; } #chart { height: 350px; } .news-box { max-height: 300px; } }
     </style>
 </head>
 <body>
-    <h2>Si AI Terminal | RBC News</h2>
+    <h2>Si AI TERMINAL</h2>
 
     <div class="grid">
-        <!-- LEFT -->
         <div class="card">
             <div class="tf-selector" id="tfSelector">
-                <button class="tf-btn active" data-tf="15" type="button">15M</button>
-                <button class="tf-btn" data-tf="60" type="button">1H</button>
-                <button class="tf-btn" data-tf="1440" type="button">1D</button>
+                <button class="tf-btn active" data-tf="15">M15</button>
+                <button class="tf-btn" data-tf="60">H1</button>
+                <button class="tf-btn" data-tf="1440">D1</button>
+                <div style="margin-left:auto; font-size: 10px; display:flex; align-items:center; gap:8px; color: #8b949e;">
+                    <span id="contractName">Поиск контракта...</span>
+                    <span id="lastTradeTime">--:--:--</span>
+                </div>
             </div>
             
-            <div id="chart"><div id="loading"><div class="spinner"></div> Загрузка...</div></div>
+            <div id="chart"><div id="loading"><div class="spinner"></div> Инициализация...</div></div>
             
-            <div style="display: flex; justify-content: space-between; margin-top: 6px; padding: 0 4px; font-size: 11px; color: #8b949e;">
-                <span id="contractName">Контракт: --</span>
-                <span id="lastTradeTime">--</span>
-            </div>
-
-            <div class="news-box" id="newsBox">
-                <div style="font-weight: 600; color: #3b82f6; margin-bottom: 8px;">Бизнес новости (РБК)</div>
-                <div id="newsList">Загрузка...</div>
+            <div class="news-container">
+                <div class="news-header">Лента новостей (РБК / Investing)</div>
+                <div class="news-box" id="newsList">
+                    </div>
             </div>
         </div>
 
-        <!-- RIGHT -->
         <div class="card">
             <div class="ticker-wrap">
-                <div style="text-align: left;">
-                    <div class="ticker-label">ПОСЛЕДНЯЯ ЦЕНА</div>
+                <div>
+                    <div class="ticker-label">LAST PRICE</div>
                     <div class="ticker-val" id="currentPrice">--</div>
                 </div>
                 <div style="text-align: right;">
-                    <div class="ticker-label">ИЗМЕНЕНИЕ</div>
-                    <div class="ticker-val" id="changePercent">--</div>
+                    <div class="ticker-label">CHANGE</div>
+                    <div class="ticker-val" id="changePercent">--%</div>
                 </div>
             </div>
 
             <div id="signal_ui" class="signal-display hold">
-                <div style="font-size: 10px; opacity: 0.7;">СИГНАЛ</div>
-                <div id="signal_text" style="font-size: 24px; font-weight: bold;">ОЖИДАНИЕ</div>
-                <div id="signal_confidence" style="font-size: 11px; margin-top: 2px;"></div>
+                <div style="font-size: 9px; opacity: 0.7; text-transform:uppercase;">AI Signal</div>
+                <div id="signal_text" style="font-size: 20px; font-weight: bold; margin: 4px 0;">WAIT</div>
+                <div id="signal_confidence" style="font-size: 10px;">Ready</div>
             </div>
 
             <div id="tradePlanBox" class="trade-plan-box">
-                <div style="text-align: center; font-size: 11px; font-weight: 600; color: var(--accent); margin-bottom: 6px;">ТОРГОВЫЙ ПЛАН</div>
-                <div class="plan-row"><span><span class="dot" style="background: #58a6ff;"></span>Entry</span><span id="aiEntry" style="color: #58a6ff">--</span></div>
-                <div class="plan-row"><span><span class="dot" style="background: var(--buy);"></span>TP</span><span id="aiTP" style="color: var(--buy)">--</span></div>
-                <div class="plan-row"><span><span class="dot" style="background: var(--sell);"></span>SL</span><span id="aiSL" style="color: var(--sell)">--</span></div>
+                <div style="text-align: center; font-size: 10px; font-weight: 600; color: var(--accent); margin-bottom: 6px;">СЕТАП</div>
+                <div class="plan-row"><span><span class="dot" style="background: var(--accent);"></span>Entry</span><span id="aiEntry" style="color: var(--accent)">--</span></div>
+                <div class="plan-row"><span><span class="dot" style="background: var(--buy);"></span>Take</span><span id="aiTP" style="color: var(--buy)">--</span></div>
+                <div class="plan-row"><span><span class="dot" style="background: var(--sell);"></span>Stop</span><span id="aiSL" style="color: var(--sell)">--</span></div>
             </div>
 
-            <div id="ai_desc" class="error-msg" style="display:none;"></div>
+            <div id="ai_desc" class="error-msg"></div>
 
-            <div class="stats-grid" id="statsGrid" style="display: none;">
-                <div class="stat-item"><div style="color: #8b949e; font-size: 10px;">RSI</div><div id="statRsi" style="font-weight: 600;">-</div></div>
-                <div class="stat-item"><div style="color: #8b949e; font-size: 10px;">ATR</div><div id="statAtr" style="font-weight: 600;">-</div></div>
-                <div class="stat-item"><div style="color: #8b949e; font-size: 10px;">MACD</div><div id="statMacd" style="font-weight: 600;">-</div></div>
-                <div class="stat-item"><div style="color: #8b949e; font-size: 10px;">Тренд</div><div id="statTrend" style="font-weight: 600;">-</div></div>
+            <div class="stats-grid" id="statsGrid">
+                <div class="stat-item"><div class="stat-label">RSI (14)</div><div class="stat-val" id="statRsi">-</div></div>
+                <div class="stat-item"><div class="stat-label">ATR (14)</div><div class="stat-val" id="statAtr">-</div></div>
+                <div class="stat-item"><div class="stat-label">MACD</div><div class="stat-val" id="statMacd">-</div></div>
+                <div class="stat-item"><div class="stat-label">TREND (EMA20)</div><div class="stat-val" id="statTrend">-</div></div>
             </div>
 
-            <button onclick="runAnalysis()" type="button"> КОМПЛЕКСНЫЙ АНАЛИЗ</button>
-
-            <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border);">
-                <label style="font-size: 11px;">API Key:</label>
-                <input type="password" id="api_key_input" placeholder="sk-or-..." value="">
-                <button class="small" onclick="saveKey()" style="margin-top: 4px; width: 100%;">Сохранить</button>
+            <div style="margin-top: auto;">
+                <button class="primary" onclick="runAnalysis()">ЗАПРОСИТЬ АНАЛИЗ (AI)</button>
+                
+                <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border);">
+                    <label style="font-size: 10px; color: #8b949e;">OpenRouter API Key:</label>
+                    <input type="password" id="api_key_input" placeholder="sk-or-..." value="">
+                    <button onclick="saveKey()" style="margin-top: 6px; width: 100%; background: #21262d; border: 1px solid var(--border); color: #c9d1d9; padding: 6px; border-radius: 4px; font-size: 10px; cursor: pointer;">Сохранить ключ</button>
+                </div>
             </div>
         </div>
     </div>
@@ -127,6 +166,7 @@
         // ==================== CONFIG ==================
         const MOEX_BASE = "https://iss.moex.com/iss/engines/futures/markets/forts";
         
+        // State
         let currentTicker = null;
         let chart = null;
         let candleSeries = null;
@@ -135,30 +175,31 @@
         let allNews = []; 
         let currentTf = 15;
 
-        // ==================== 1. SMART TICKER ====================
+        // ==================== 1. CONTRACT DETECTION ====================
         const antiCache = () => `_=${Date.now()}`;
 
         async function detectActiveContract() {
             const loading = document.getElementById('loading');
             loading.style.display = 'flex';
-            loading.innerHTML = '<div class="spinner"></div> Поиск актива...';
+            loading.innerHTML = '<div class="spinner"></div> Поиск Si...';
             
             const url = `${MOEX_BASE}/securities.json?q=Si&iss.only=marketdata,securities&${antiCache()}`;
             try {
                 const res = await fetch(url);
                 const data = await res.json();
+                
+                // Ищем тикер с наибольшим объемом торгов (VALTODAY)
                 const cols = data.marketdata.columns;
                 const rows = data.marketdata.data;
-                
-                let best = { ticker: 'SiH6', vol: 0 };
                 const idxVol = cols.indexOf('VALTODAY');
-                const secCols = data.securities.columns;
+                const idxSecId = data.securities.columns.indexOf('SECID');
                 const secRows = data.securities.data;
-                const idxSecId = secCols.indexOf('SECID');
+
+                let best = { ticker: 'SiH6', vol: 0 };
 
                 rows.forEach((row, i) => {
                     const secId = secRows[i] ? secRows[i][idxSecId] : '';
-                    if (!secId.startsWith('Si')) return;
+                    if (!secId.startsWith('Si')) return; // Фильтр только Si
                     const vol = row[idxVol] || 0;
                     if (vol > best.vol) best = { ticker: secId, vol: vol };
                 });
@@ -167,12 +208,13 @@
                 document.getElementById('contractName').innerText = `Контракт: ${currentTicker}`;
                 return true;
             } catch(e) {
-                currentTicker = "SiH6";
+                console.error(e);
+                currentTicker = "SiH6"; // Fallback
                 return false;
             }
         }
 
-        // ==================== 2. DATA ==================
+        // ==================== 2. MARKET DATA ==================
         async function fetchQuotes() {
             if(!currentTicker) return;
             const url = `${MOEX_BASE}/securities/${currentTicker}.json?iss.only=marketdata&${antiCache()}`;
@@ -204,7 +246,7 @@
             loading.style.display = 'flex';
             
             const d = new Date();
-            d.setDate(d.getDate() - 7);
+            d.setDate(d.getDate() - 5); // Последние 5 дней
             const from = d.toISOString().split('T')[0];
             
             const url = `${MOEX_BASE}/securities/${currentTicker}/candles.json?interval=${tf}&from=${from}&${antiCache()}`;
@@ -223,111 +265,132 @@
                 })).filter(c => c.close > 0);
 
                 renderChart(historyData);
+                calcTech(); // Считаем индикаторы сразу
             } catch(e) {
-                loading.innerHTML = `<span style='color:var(--sell); font-size:12px;'>Ошибка: ${e.message}</span>`;
+                loading.innerHTML = `<span style='color:var(--sell); font-size:10px;'>Ошибка: ${e.message}</span>`;
             }
             loading.style.display = 'none';
         }
 
-        // ==================== 3. NEWS (FIXED: RBC RSS) ==================
+        // ==================== 3. NEWS (CORRECTED MODULE) ==================
         async function fetchNews() {
             const list = document.getElementById('newsList');
-            list.innerHTML = '<div style="color:#8b949e">Загрузка РБК...</div>';
             
-            // Источники (RBC - самый надежный для бизнеса)
-            // Используем allorigins для обхода CORS
+            // Если список пуст, показываем статус
+            if (!list.children.length) {
+                list.innerHTML = '<div style="color:#8b949e; text-align:center; padding:10px; font-size:11px;">↻ Загрузка ленты...</div>';
+            }
+
+            // Источники: РБК и Investing
             const sources = [
-                { name: 'РБК', url: 'https://rssexport.rbc.ru/rbcnews/news/20/full.rss' },
-                { name: 'Finam', url: 'https://www.finam.ru/analysis/conews/rsspoint' }
+                { name: 'РБК', url: 'https://rssexport.rbc.ru/rbcnews/news/20/full.rss', color: '#238636' }, // Зеленый
+                { name: 'Investing', url: 'https://ru.investing.com/rss/news_285.rss', color: '#d29922' } // Оранжевый
             ];
 
-            allNews = []; // Сброс
+            let rawItems = [];
 
-            for (const src of sources) {
-                if (allNews.length > 5) break; // Если уже набрали, выходим
-                
-                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(src.url)}`;
+            // Параллельная загрузка через JSON-прокси (allorigins.win/get)
+            const promises = sources.map(async (src) => {
+                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(src.url)}`;
                 
                 try {
                     const res = await fetch(proxyUrl);
-                    const text = await res.text();
+                    const data = await res.json();
+                    
+                    if (!data.contents) return [];
+
                     const parser = new DOMParser();
-                    const xml = parser.parseFromString(text, "text/xml");
-                    const items = xml.querySelectorAll("item");
-                    
-                    let html = '';
-                    const now = new Date();
+                    const xml = parser.parseFromString(data.contents, "text/xml");
+                    const items = Array.from(xml.querySelectorAll("item"));
 
-                    items.forEach((item, index) => {
-                        if(index >= 5) return;
-                        
-                        const titleEl = item.querySelector("title");
-                        const linkEl = item.querySelector("link");
-                        const pubDateEl = item.querySelector("pubDate");
-                        
-                        if(!titleEl || !linkEl) return;
-
-                        const title = titleEl.textContent;
-                        const link = linkEl.textContent;
-                        const date = pubDateEl ? new Date(pubDateEl.textContent) : new Date();
-                        
-                        const hoursAgo = (now - date) / 3600000;
-                        
-                        // Добавляем в массив для AI (только свежие)
-                        if (hoursAgo < 24) allNews.push({ title, link });
-
-                        const timeStr = hoursAgo < 1 ? 'Только что' : hoursAgo < 24 ? `${Math.round(hoursAgo)}ч назад` : date.toLocaleDateString('ru-RU');
-                        
-                        html += `
-                            <div class="news-item">
-                                <span class="news-time">${src.name} • ${timeStr}</span>
-                                <a href="${link}" target="_blank" style="color:var(--text);text-decoration:none;">${title}</a>
-                            </div>
-                        `;
+                    return items.map(item => {
+                        const pubDate = item.querySelector("pubDate")?.textContent;
+                        return {
+                            source: src.name,
+                            color: src.color,
+                            title: item.querySelector("title")?.textContent || "Без заголовка",
+                            link: item.querySelector("link")?.textContent || "#",
+                            ts: pubDate ? new Date(pubDate).getTime() : Date.now(),
+                            dateObj: pubDate ? new Date(pubDate) : new Date()
+                        };
                     });
-
-                    // Добавляем в DOM только если еще пусто
-                    if (list.innerHTML.includes('Загрузка')) {
-                        list.innerHTML = html;
-                    } else {
-                        list.innerHTML += html; // Или добавляем к существующим
-                    }
-                    
-                } catch(e) {
-                    console.error(`Failed to fetch ${src.name}`, e);
+                } catch (e) {
+                    console.warn(`Ошибка источника ${src.name}:`, e);
+                    return [];
                 }
+            });
+
+            const results = await Promise.all(promises);
+            results.forEach(arr => rawItems = rawItems.concat(arr));
+
+            // Сортировка по времени (новые сверху)
+            rawItems.sort((a, b) => b.ts - a.ts);
+
+            // Сохраняем топ-5 для AI
+            allNews = rawItems.slice(0, 5).map(n => ({ title: n.title, link: n.link }));
+
+            // Рендерим топ-15
+            const uiItems = rawItems.slice(0, 15);
+            
+            if (uiItems.length === 0) {
+                list.innerHTML = '<div style="color:#da3633; font-size:10px; text-align:center;">Не удалось получить новости.</div>';
+                return;
             }
 
-            // Если совсем ничего нет - заглушка
-            if (allNews.length === 0) {
-                list.innerHTML = '<div style="color:#d29922; font-size:11px; padding:5px;">Не удалось загрузить ленту.<br>Проверьте интернет.</div>';
-                // Fallback данные для AI, чтобы он не падал
-                allNews = [{title: "Нет свежих новостей за последние 24 часа"}];
-            }
+            let html = '';
+            const now = Date.now();
+
+            uiItems.forEach(n => {
+                const diffMin = (now - n.ts) / 60000;
+                let timeStr;
+                if (diffMin < 60) timeStr = `${Math.floor(diffMin)} мин.`;
+                else if (diffMin < 1440) timeStr = `${Math.floor(diffMin/60)} ч.`;
+                else timeStr = n.dateObj.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
+
+                html += `
+                    <div class="news-item">
+                        <div class="news-meta">
+                            <span class="news-source" style="background:${n.color}">${n.source}</span>
+                            <span class="news-time">${timeStr}</span>
+                        </div>
+                        <a href="${n.link}" target="_blank" class="news-link">${n.title}</a>
+                    </div>
+                `;
+            });
+
+            list.innerHTML = html;
         }
 
-        // ==================== 4. REALTIME CHART ==================
+        // ==================== 4. CHART ENGINE ==================
         function updateChartLive(price) {
             if (!candleSeries || !historyData.length) return;
 
             const now = Math.floor(Date.now() / 1000);
             const tfSeconds = currentTf * 60;
+            // Округляем до начала текущего интервала
             const currentCandleTime = Math.floor(now / tfSeconds) * tfSeconds;
 
             let lastCandle = historyData[historyData.length - 1];
 
-            if (lastCandle.time === currentCandleTime) {
-                lastCandle.close = price;
-                if (price > lastCandle.high) lastCandle.high = price;
-                if (price < lastCandle.low) lastCandle.low = price;
+            if (lastCandle.time >= currentCandleTime) {
+                // Обновляем текущую свечу
+                const upd = { 
+                    time: lastCandle.time, 
+                    open: lastCandle.open, 
+                    high: Math.max(lastCandle.high, price), 
+                    low: Math.min(lastCandle.low, price), 
+                    close: price 
+                };
+                historyData[historyData.length - 1] = upd;
+                candleSeries.update(upd);
             } else {
-                historyData.push({ time: currentCandleTime, open: lastCandle.close, high: price, low: price, close: price });
-                if (historyData.length > 500) historyData.shift();
+                // Новая свеча
+                const newCandle = { time: currentCandleTime, open: price, high: price, low: price, close: price };
+                historyData.push(newCandle);
+                candleSeries.update(newCandle);
             }
-            candleSeries.update(historyData[historyData.length - 1]);
         }
 
-        // ==================== 5. CHART RENDER ==================
         function renderChart(data) {
             const cont = document.getElementById('chart');
             cont.innerHTML = '';
@@ -336,141 +399,218 @@
             chart = LightweightCharts.createChart(cont, {
                 layout: { background: { color: '#161b22' }, textColor: '#8b949e' },
                 grid: { vertLines: { color: '#222' }, horzLines: { color: '#222' } },
-                timeScale: { timeVisible: true },
-                width: cont.clientWidth, height: 400
+                timeScale: { timeVisible: true, borderColor: '#30363d' },
+                rightPriceScale: { borderColor: '#30363d' },
+                crosshair: { mode: 1 },
+                width: cont.clientWidth, 
+                height: cont.clientHeight
             });
-            candleSeries = chart.addCandlestickSeries({ upColor: '#238636', downColor: '#f85149', borderVisible: false });
+
+            candleSeries = chart.addCandlestickSeries({ 
+                upColor: '#238636', 
+                downColor: '#da3633', 
+                borderVisible: false, 
+                wickUpColor: '#238636', 
+                wickDownColor: '#da3633' 
+            });
+            
             candleSeries.setData(data);
             chart.timeScale().fitContent();
+
+            // Авто-ресайз
+            new ResizeObserver(entries => {
+                if (entries.length === 0 || entries[0].target !== cont) return;
+                const { width, height } = entries[0].contentRect;
+                chart.resize(width, height);
+            }).observe(cont);
         }
 
         function drawPlan(e, tp, sl) {
             if(!candleSeries) return;
+            // Удаляем старые линии
             priceLines.forEach(l => candleSeries.removePriceLine(l));
             priceLines = [];
-            const mkLine = (p, c, t) => candleSeries.createPriceLine({ price: p, color: c, lineWidth: 2, lineStyle: 1, title: t });
-            priceLines.push(mkLine(e, '#58a6ff', 'Entry'));
+            
+            const mkLine = (p, c, t) => candleSeries.createPriceLine({ 
+                price: p, color: c, lineWidth: 2, lineStyle: 2, title: t, axisLabelVisible: true 
+            });
+            
+            priceLines.push(mkLine(e, '#58a6ff', 'ENTRY'));
             priceLines.push(mkLine(tp, '#238636', 'TP'));
-            priceLines.push(mkLine(sl, '#f85149', 'SL'));
+            priceLines.push(mkLine(sl, '#da3633', 'SL'));
         }
 
-        // ==================== 6. UI ==================
+        // ==================== 5. ANALYSIS LOGIC ==================
         function updatePriceUI(q) {
             if(!q || !q.price) return;
-            document.getElementById('currentPrice').innerText = q.price.toFixed(2);
+            document.getElementById('currentPrice').innerText = q.price.toFixed(0);
             if(q.prev > 0) {
                 const pct = ((q.price - q.prev)/q.prev * 100);
-                document.getElementById('changePercent').innerText = (pct>=0?'+':'') + pct.toFixed(2)+'%';
-                document.getElementById('changePercent').style.color = pct>=0?'var(--buy)':'var(--sell)';
+                const el = document.getElementById('changePercent');
+                el.innerText = (pct>=0?'+':'') + pct.toFixed(2)+'%';
+                el.style.color = pct>=0?'var(--buy)':'var(--sell)';
             }
-            if(q.time) document.getElementById('lastTradeTime').innerText = "Сделка: " + new Date(q.time).toLocaleTimeString('ru-RU');
+            if(q.time) document.getElementById('lastTradeTime').innerText = new Date(q.time).toLocaleTimeString('ru-RU');
         }
 
-        // ==================== 7. ANALYSIS ==================
         function calcTech() {
             if (historyData.length < 20) return null;
             const c = historyData.map(d=>d.close);
+            
+            // RSI
             let g=0,l=0;
             for(let i=c.length-14;i<c.length;i++){ const d=c[i]-c[i-1]; if(d>0)g+=d; else l-=d; }
             const rsi = l===0 ? 100 : 100 - (100/(1+g/l));
+            
+            // EMA
             const ema = (p,per) => p.slice(1).reduce((e,v)=>v*(2/(per+1))+e*(1-2/(per+1)), p[0]);
+            
+            // MACD
             const macd = ema(c,12)-ema(c,26);
+            
+            // ATR
             let tr=0;
-            for(let i=historyData.length-14;i<historyData.length;i++){ const h=historyData[i].high, l=historyData[i].low, pc=historyData[i-1].close; tr+=Math.max(h-l, Math.abs(h-pc), Math.abs(l-pc)); }
+            for(let i=historyData.length-14;i<historyData.length;i++){ 
+                const h=historyData[i].high, low=historyData[i].low, pc=historyData[i-1].close; 
+                tr+=Math.max(h-low, Math.abs(h-pc), Math.abs(low-pc)); 
+            }
             const atr = tr/14;
 
+            // UI Update
             document.getElementById('statsGrid').style.display='grid';
             document.getElementById('statRsi').innerText=rsi.toFixed(1);
-            document.getElementById('statAtr').innerText=atr.toFixed(2);
-            document.getElementById('statMacd').innerText=macd.toFixed(2);
-            document.getElementById('statMacd').style.color=macd>0?'var(--buy)':'var(--sell)';
-            document.getElementById('statTrend').innerText=c[c.length-1]>ema(c,20)?'BULL':'BEAR';
+            document.getElementById('statRsi').style.color = rsi>70 ? 'var(--sell)' : rsi<30 ? 'var(--buy)' : 'var(--text)';
+            
+            document.getElementById('statAtr').innerText=atr.toFixed(0);
+            document.getElementById('statMacd').innerText=macd.toFixed(1);
+            
+            const isBull = c[c.length-1] > ema(c,20);
+            const trendEl = document.getElementById('statTrend');
+            trendEl.innerText = isBull ? 'BULL' : 'BEAR';
+            trendEl.style.color = isBull ? 'var(--buy)' : 'var(--sell)';
 
-            return {rsi, atr, macd, price:c[c.length-1], trend: c[c.length-1]>ema(c,20)?'BULL':'BEAR'};
+            return {rsi, atr, macd, price:c[c.length-1]};
         }
 
         async function runAnalysis() {
             const key = document.getElementById('api_key_input').value.trim();
-            if(!key) { alert("Введите API Key"); return; }
+            if(!key) { alert("Введите API Key от OpenRouter!"); return; }
             
             const tech = calcTech();
-            if (!tech) { alert("Недостаточно данных."); return; }
+            if (!tech) { alert("График загружается, подождите..."); return; }
 
-            document.getElementById('signal_text').innerText = "АНАЛИЗ...";
+            const btn = document.querySelector('button.primary');
+            const originalText = btn.innerText;
+            btn.innerText = "АНАЛИЗ...";
+            btn.disabled = true;
+
+            document.getElementById('signal_text').innerText = "...";
             document.getElementById('tradePlanBox').style.display = 'none';
             document.getElementById('ai_desc').style.display = 'none';
 
-            let newsContext = "НОВОСТНОЙ ФОН:\n";
+            let newsContext = "";
             if (allNews.length > 0) {
-                allNews.forEach((n, i) => newsContext += `${i+1}. ${n.title}\n`);
+                newsContext = "ПОСЛЕДНИЕ НОВОСТИ:\n" + allNews.map((n, i) => `${i+1}. ${n.title}`).join("\n");
             } else {
-                newsContext += "Нет свежих новостей.\n";
+                newsContext = "Новостной фон нейтральный.";
             }
 
-            const prompt = `Ты профи-трейдер Si.
-Цена: ${tech.price.toFixed(2)}
-RSI: ${tech.rsi.toFixed(1)}
-MACD: ${tech.macd.toFixed(2)}
-ATR: ${tech.atr.toFixed(2)}
+            const prompt = `Роль: Профессиональный скальпер на Si (USDRUB futures).
+ВХОДНЫЕ ДАННЫЕ:
+Цена: ${tech.price}
+Таймфрейм: ${currentTf} мин
+RSI (14): ${tech.rsi.toFixed(1)}
+MACD: ${tech.macd.toFixed(1)}
+ATR (14): ${tech.atr.toFixed(0)}
 
- ${newsContext}
+${newsContext}
 
-Дай сигнал: ПОКУПКА/ПРОДАЖА/ДЕРЖАТЬ.
-План (ATR):
-BUY: TP=Price+1.5*ATR, SL=Price-1*ATR.
-SELL: TP=Price-1.5*ATR, SL=Price+1*ATR.
-JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..." }`;
+ЗАДАЧА:
+1. Оцени ситуацию.
+2. Дай сигнал: BUY, SELL или WAIT.
+3. Рассчитай Entry, TP (Take Profit) и SL (Stop Loss) исходя из ATR (TP ~1.5 ATR, SL ~1 ATR).
+
+ФОРМАТ ОТВЕТА (JSON only):
+{
+  "signal": "BUY" | "SELL" | "WAIT",
+  "confidence": 0-100,
+  "entry": number,
+  "tp": number,
+  "sl": number,
+  "reason": "Краткое обоснование на русском (макс 15 слов)"
+}`;
 
             try {
                 const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                     method: "POST",
                     headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-                    body: JSON.stringify({ model: "deepseek/deepseek-v3.2", messages: [{role:"user", content:prompt}] })
+                    body: JSON.stringify({ 
+                        model: "deepseek/deepseek-r1:free", // Можно сменить на платную (deepseek/deepseek-v3)
+                        messages: [{role:"user", content:prompt}] 
+                    })
                 });
+                
                 const data = await res.json();
                 if(data.error) throw new Error(data.error.message);
-                const json = parse(data.choices[0].message.content);
+                
+                // Парсим JSON из ответа (иногда модель добавляет текст вокруг)
+                const content = data.choices[0].message.content;
+                const jsonMatch = content.match(/\{[\s\S]*\}/);
+                if (!jsonMatch) throw new Error("Некорректный ответ нейросети");
+                
+                const json = JSON.parse(jsonMatch[0]);
                 updateUI(json, tech.price);
+
             } catch(e) {
-                document.getElementById('signal_text').innerText = "ОШИБКА";
+                document.getElementById('signal_text').innerText = "ERR";
                 document.getElementById('ai_desc').innerText = e.message;
                 document.getElementById('ai_desc').style.display = 'block';
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
             }
         }
 
-        function parse(s) { try { return JSON.parse(s.match(/\{[\s\S]*\}/)[0]); } catch { return {signal:"ДЕРЖАТЬ", confidence:0, reason:"err", entry:0,tp:0,sl:0}; } }
-
         function updateUI(j, p) {
             const ui = document.getElementById('signal_ui');
-            ui.className = "signal-display " + (j.signal==='ПОКУПКА'?'buy':j.signal==='ПРОДАЖА'?'sell':'hold');
+            const map = { 'BUY': 'buy', 'SELL': 'sell', 'WAIT': 'hold' };
+            ui.className = "signal-display " + (map[j.signal] || 'hold');
+            
             document.getElementById('signal_text').innerText = j.signal;
-            document.getElementById('signal_confidence').innerText = `Уверенность: ${j.confidence}%`;
+            document.getElementById('signal_confidence').innerText = `Confidence: ${j.confidence}%`;
+            
             document.getElementById('ai_desc').innerText = j.reason;
             document.getElementById('ai_desc').style.display = 'block';
             
-            if(j.entry && j.tp && j.sl && !isNaN(j.entry)) {
+            if(j.signal !== 'WAIT' && j.entry && j.tp) {
                 document.getElementById('tradePlanBox').style.display='block';
-                document.getElementById('aiEntry').innerText=j.entry.toFixed(2);
-                document.getElementById('aiTP').innerText=j.tp.toFixed(2);
-                document.getElementById('aiSL').innerText=j.sl.toFixed(2);
+                document.getElementById('aiEntry').innerText = j.entry;
+                document.getElementById('aiTP').innerText = j.tp;
+                document.getElementById('aiSL').innerText = j.sl;
                 drawPlan(j.entry, j.tp, j.sl);
             }
         }
 
-        // ==================== INIT ==================
-        function saveKey() { localStorage.setItem('si_k', document.getElementById('api_key_input').value); alert("OK"); }
+        function saveKey() { 
+            const k = document.getElementById('api_key_input').value;
+            localStorage.setItem('si_k', k); 
+            alert("Ключ сохранен!"); 
+        }
 
+        // ==================== INIT ==================
         window.onload = async () => {
             const k = localStorage.getItem('si_k');
-            if(k) document.getElementById('api_key_input').value=k;
+            if(k) document.getElementById('api_key_input').value = k;
 
             await detectActiveContract();
             await Promise.all([fetchQuotes(), fetchCandles(15), fetchNews()]);
 
-            setInterval(fetchQuotes, 2000); 
-            setInterval(() => fetchCandles(currentTf), 900000);
-            setInterval(fetchNews, 600000); // Обновляем новости раз в 10 мин
+            // Таймеры обновлений
+            setInterval(fetchQuotes, 2000); // Цена каждые 2 сек
+            setInterval(() => fetchCandles(currentTf), 60000); // Свечи каждую минуту
+            setInterval(fetchNews, 300000); // Новости раз в 5 мин
 
+            // Обработчик таймфреймов
             document.getElementById('tfSelector').onclick = (e) => {
                 const btn = e.target.closest('.tf-btn');
                 if(!btn) return;
