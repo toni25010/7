@@ -198,6 +198,16 @@
             } catch(e) { console.error("Quote error", e); }
         }
 
+        // Преобразование времени MOEX (MSK) в UTC timestamp
+        function parseMoexTime(dateStr) {
+            // dateStr example: "2025-02-18 10:00:00" (MSK)
+            const [datePart, timePart] = dateStr.split(' ');
+            const [year, month, day] = datePart.split('-').map(Number);
+            const [hour, minute, second] = timePart.split(':').map(Number);
+            // Создаём UTC timestamp, вычитая 3 часа (MSK → UTC)
+            return Math.floor(Date.UTC(year, month-1, day, hour-3, minute, second) / 1000);
+        }
+
         async function fetchCandles(tf = 15) {
             if(!currentTicker) return;
             const loading = document.getElementById('loading');
@@ -218,7 +228,7 @@
                 const idx = { o: cols.indexOf('open'), c: cols.indexOf('close'), h: cols.indexOf('high'), l: cols.indexOf('low'), t: cols.indexOf('begin') };
 
                 historyData = data.candles.data.map(r => ({
-                    time: Math.floor(new Date(r[idx.t]).getTime() / 1000),
+                    time: parseMoexTime(r[idx.t]),
                     open: r[idx.o], high: r[idx.h], low: r[idx.l], close: r[idx.c]
                 })).filter(c => c.close > 0);
 
@@ -393,13 +403,19 @@
             }
         }
 
-        // ==================== 4. REALTIME CHART ==================
+        // ==================== 4. REALTIME CHART (исправлено) ==================
         function updateChartLive(price) {
             if (!candleSeries || !historyData.length) return;
 
-            const now = Math.floor(Date.now() / 1000);
+            const nowUtc = Math.floor(Date.now() / 1000);
+            const mskOffset = 3 * 3600; // Москва UTC+3
+            const nowMsk = nowUtc + mskOffset;
+
             const tfSeconds = currentTf * 60;
-            const currentCandleTime = Math.floor(now / tfSeconds) * tfSeconds;
+            // Начало текущего интервала по московскому времени
+            const startOfIntervalMsk = Math.floor(nowMsk / tfSeconds) * tfSeconds;
+            // Переводим в UTC
+            const currentCandleTime = startOfIntervalMsk - mskOffset;
 
             let lastCandle = historyData[historyData.length - 1];
 
@@ -408,6 +424,7 @@
                 if (price > lastCandle.high) lastCandle.high = price;
                 if (price < lastCandle.low) lastCandle.low = price;
             } else {
+                // Новая свеча: открытие по цене закрытия предыдущей
                 historyData.push({ time: currentCandleTime, open: lastCandle.close, high: price, low: price, close: price });
                 if (historyData.length > 500) historyData.shift();
             }
