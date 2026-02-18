@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Si AI Terminal | Stable</title>
+    <title>Si AI Terminal | Live Realtime</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #8957e5; --buy: #238636; --sell: #f85149; --hold: #d29922; }
@@ -54,7 +54,7 @@
     </style>
 </head>
 <body>
-    <h2>Si AI Terminal | Real-time</h2>
+    <h2>Si AI Terminal | Realtime Chart</h2>
 
     <div class="grid">
         <!-- LEFT -->
@@ -133,7 +133,7 @@
         let priceLines = [];
         let historyData = [];
         let allNews = [];
-        let currentTf = 15;
+        let currentTf = 15; // Timeframe in minutes
 
         // ==================== 1. SMART TICKER ====================
         const antiCache = () => `_=${Date.now()}`;
@@ -150,7 +150,7 @@
                 const cols = data.marketdata.columns;
                 const rows = data.marketdata.data;
                 
-                let best = { ticker: 'SiH6', vol: 0 }; // Default fallback
+                let best = { ticker: 'SiH6', vol: 0 };
                 const idxVol = cols.indexOf('VALTODAY');
                 const secCols = data.securities.columns;
                 const secRows = data.securities.data;
@@ -167,13 +167,12 @@
                 document.getElementById('contractName').innerText = `Контракт: ${currentTicker}`;
                 return true;
             } catch(e) {
-                console.error("Detection error", e);
                 currentTicker = "SiH6";
                 return false;
             }
         }
 
-        // ==================== 2. DATA ==================
+        // ==================== 2. DATA (UNTOUCHED CORE) ==================
         async function fetchQuotes() {
             if(!currentTicker) return;
             const url = `${MOEX_BASE}/securities/${currentTicker}.json?iss.only=marketdata&${antiCache()}`;
@@ -194,7 +193,11 @@
                 };
                 
                 updatePriceUI(quote);
-                return quote;
+                
+                // === NEW: REALTIME CHART UPDATE ===
+                if(quote.price) updateChartLive(quote.price);
+                // ==================================
+
             } catch(e) { console.error("Quote error", e); }
         }
 
@@ -212,8 +215,6 @@
             try {
                 const res = await fetch(url);
                 const data = await res.json();
-                
-                // CHECK DATA
                 if (!data.candles?.data?.length) throw new Error("Нет свечей");
 
                 const cols = data.candles.columns;
@@ -255,7 +256,42 @@
             }
         }
 
-        // ==================== 3. CHART ==================
+        // ==================== 3. REALTIME CHART LOGIC ==================
+        function updateChartLive(price) {
+            if (!candleSeries || !historyData.length) return;
+
+            const now = Math.floor(Date.now() / 1000);
+            // Вычисляем время начала текущей свечи (Timeframe Alignment)
+            const tfSeconds = currentTf * 60;
+            const currentCandleTime = Math.floor(now / tfSeconds) * tfSeconds;
+
+            // Берем последнюю свечу из истории
+            let lastCandle = historyData[historyData.length - 1];
+
+            // Если время совпадает (мы внутри той же свечи) - обновляем
+            if (lastCandle.time === currentCandleTime) {
+                lastCandle.close = price;
+                if (price > lastCandle.high) lastCandle.high = price;
+                if (price < lastCandle.low) lastCandle.low = price;
+            } else {
+                // Если время новое (началась новая свеча) - создаем
+                const newCandle = {
+                    time: currentCandleTime,
+                    open: lastCandle.close, // Открытие = закрытие предыдущей
+                    high: price,
+                    low: price,
+                    close: price
+                };
+                historyData.push(newCandle);
+                // Удаляем старую, если слишком много
+                if (historyData.length > 500) historyData.shift();
+            }
+
+            // Обновляем серию данных (рефреш только последней точки)
+            candleSeries.update(historyData[historyData.length - 1]);
+        }
+
+        // ==================== 4. CHART RENDER ==================
         function renderChart(data) {
             const cont = document.getElementById('chart');
             cont.innerHTML = '';
@@ -282,7 +318,7 @@
             priceLines.push(mkLine(sl, '#f85149', 'SL'));
         }
 
-        // ==================== 4. UI ==================
+        // ==================== 5. UI ==================
         function updatePriceUI(q) {
             if(!q || !q.price) return;
             document.getElementById('currentPrice').innerText = q.price.toFixed(2);
@@ -294,9 +330,9 @@
             if(q.time) document.getElementById('lastTradeTime').innerText = "Сделка: " + new Date(q.time).toLocaleTimeString('ru-RU');
         }
 
-        // ==================== 5. ANALYSIS ==================
+        // ==================== 6. ANALYSIS ==================
         function calcTech() {
-            if (historyData.length < 20) return null; // Return NULL if not enough data
+            if (historyData.length < 20) return null;
             
             const c = historyData.map(d=>d.close);
             let g=0,l=0;
@@ -322,12 +358,8 @@
             const key = document.getElementById('api_key_input').value.trim();
             if(!key) { alert("Введите API Key"); return; }
             
-            // DATA CHECK
             const tech = calcTech();
-            if (!tech) {
-                alert("Недостаточно данных для анализа. Подождите загрузки или выберите другой таймфрейм.");
-                return;
-            }
+            if (!tech) { alert("Недостаточно данных."); return; }
 
             document.getElementById('signal_text').innerText = "АНАЛИЗ...";
             document.getElementById('tradePlanBox').style.display = 'none';
@@ -377,7 +409,6 @@ JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..
             document.getElementById('ai_desc').innerText = j.reason;
             document.getElementById('ai_desc').style.display = 'block';
             
-            // Safe check for plan
             if(j.entry && j.tp && j.sl && !isNaN(j.entry)) {
                 document.getElementById('tradePlanBox').style.display='block';
                 document.getElementById('aiEntry').innerText=j.entry.toFixed(2);
@@ -397,8 +428,11 @@ JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..
             await detectActiveContract();
             await Promise.all([fetchQuotes(), fetchCandles(15), fetchNews()]);
 
-            setInterval(fetchQuotes, 60000);
+            // Quotes every 2 seconds for live chart feeling
+            setInterval(fetchQuotes, 2000); 
+            // Candles every 15 min (background history check)
             setInterval(() => fetchCandles(currentTf), 900000);
+            // News every 30 min
             setInterval(fetchNews, 1800000);
 
             document.getElementById('tfSelector').onclick = (e) => {
