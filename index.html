@@ -210,6 +210,20 @@
             opacity: 0.9;
         }
 
+        .btn-secondary {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 0.8em;
+            padding: 8px;
+            margin-top: 8px;
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--accent-sell);
+            color: var(--accent-sell);
+        }
+
         .data-sources {
             display: flex;
             flex-direction: column;
@@ -790,6 +804,31 @@
         .error-banner.show {
             display: block;
         }
+
+        .success-banner {
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid var(--accent-buy);
+            color: var(--accent-buy);
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 0.85em;
+            display: none;
+        }
+
+        .success-banner.show {
+            display: block;
+        }
+
+        .debug-info {
+            font-size: 0.7em;
+            color: var(--text-secondary);
+            margin-top: 10px;
+            padding: 8px;
+            background: var(--bg-dark);
+            border-radius: 4px;
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
@@ -832,13 +871,20 @@
             <div class="panel-title">🔐 API Configuration</div>
             <div class="api-section">
                 <div class="error-banner" id="api-error"></div>
+                <div class="success-banner" id="api-success"></div>
                 <input type="password" class="api-input" id="openrouter-key" placeholder="OpenRouter API Key (sk-or-...)">
                 <button class="btn btn-ai" onclick="validateApiKey()" id="validate-btn">
                     Connect AI
                 </button>
+                <button class="btn btn-secondary" onclick="clearApiKey()" id="clear-key-btn" style="display:none;">
+                    🗑️ Clear Saved Key
+                </button>
                 <div style="margin-top: 12px; font-size: 0.75em; color: var(--text-secondary); line-height: 1.5;">
-                    Model: <b>deepseek/deepseek-v3.2</b><br>
+                    Model: <b>deepseek/deepseek-chat</b><br>
                     Cost: ~$0.0001 per analysis
+                </div>
+                <div class="debug-info" id="api-debug" style="display:none;">
+                    Status: <span id="debug-status">Not connected</span>
                 </div>
             </div>
         </div>
@@ -936,7 +982,7 @@
                     <div class="ai-icon">🧠</div>
                     <div>
                         <div style="font-weight: 800; font-size: 1.1em;">DeepSeek-v3.2</div>
-                        <div style="font-size: 0.75em; color: var(--text-secondary);" id="last-analysis">Waiting for data...</div>
+                        <div style="font-size: 0.75em; color: var(--text-secondary);" id="last-analysis">Waiting for API key...</div>
                     </div>
                 </div>
                 
@@ -973,7 +1019,7 @@
                 </div>
 
                 <div class="ai-reasoning" id="ai-reasoning">
-                    Enter OpenRouter API key to activate AI analysis of USD/RUB market...
+                    Enter your OpenRouter API key to activate DeepSeek-v3.2 analysis. The key will be saved locally in your browser.
                 </div>
 
                 <button class="btn btn-ai" onclick="forceAnalysis()" id="analyze-btn" disabled style="margin-top: 15px;">
@@ -1077,33 +1123,32 @@
     // ==================== CONFIGURATION ====================
     const CONFIG = {
         openrouter: {
-            url: 'https://openrouter.ai/api/v1/chat/completions',
-            model: 'deepseek/deepseek-v3.2',
+            url: 'https://openrouter.ai/api/v1',
+            // Правильные пути к моделям DeepSeek
+            models: {
+                v3: 'deepseek/deepseek-chat', // DeepSeek-V3 (лучшая для анализа)
+                coder: 'deepseek/deepseek-coder', // Для кода
+                r1: 'deepseek/deepseek-r1' // Для рассуждений
+            },
             siteUrl: window.location.href,
             siteName: 'USD/RUB Trading Terminal'
         },
+        storageKey: 'openrouter_api_key',
         dataSources: {
-            // Работающие CORS-прокси (запасные)
             proxies: [
                 'https://api.codetabs.com/v1/proxy?quest=',
                 'https://corsproxy.io/?',
                 'https://api.allorigins.win/raw?url='
             ],
             cbrf: 'https://www.cbr-xml-daily.ru/daily_json.js',
-            moex: 'https://iss.moex.com/iss/engines/currency/markets/selt/securities/USD000UTSTOM.json?iss.meta=off&iss.only=marketdata',
-            // Альтернативные источники новостей без API ключа
-            news: [
-                'https://rsshub.app/reuters/reuters/business',
-                'https://rsshub.app/bloomberg/markets',
-                'https://www.rbc.ru/business/rss/'
-            ]
+            moex: 'https://iss.moex.com/iss/engines/currency/markets/selt/securities/USD000UTSTOM.json?iss.meta=off&iss.only=marketdata'
         },
         settings: {
             analysisInterval: 60000,
             newsWeight: 40,
             confidenceThreshold: 70,
             maxHistoryPoints: 500,
-            requestTimeout: 10000 // 10 секунд таймаут
+            requestTimeout: 15000
         }
     };
 
@@ -1127,12 +1172,47 @@
             moex: false,
             news: false
         },
-        analysisInProgress: false
+        analysisInProgress: false,
+        autoAnalysisInterval: null
     };
 
+    // ==================== LOCAL STORAGE ====================
+    function saveApiKey(key) {
+        try {
+            localStorage.setItem(CONFIG.storageKey, key);
+            log('API key saved to localStorage', 'success');
+            return true;
+        } catch (e) {
+            log('Failed to save API key: ' + e.message, 'error');
+            return false;
+        }
+    }
+
+    function loadApiKey() {
+        try {
+            return localStorage.getItem(CONFIG.storageKey);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function clearApiKey() {
+        try {
+            localStorage.removeItem(CONFIG.storageKey);
+            state.apiKey = null;
+            state.aiConnected = false;
+            updateDataStatus('ai', false);
+            document.getElementById('openrouter-key').value = '';
+            document.getElementById('clear-key-btn').style.display = 'none';
+            document.getElementById('analyze-btn').disabled = true;
+            document.getElementById('ai-reasoning').textContent = 'API key cleared. Enter new key to activate AI.';
+            log('API key cleared from localStorage', 'info');
+        } catch (e) {
+            log('Failed to clear API key: ' + e.message, 'error');
+        }
+    }
+
     // ==================== UTILITY FUNCTIONS ====================
-    
-    // Fetch с таймаутом и retry
     async function fetchWithTimeout(url, options = {}, timeout = CONFIG.settings.requestTimeout) {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), timeout);
@@ -1150,11 +1230,9 @@
         }
     }
 
-    // Попытка fetch через несколько прокси
     async function fetchWithProxy(targetUrl) {
         const errors = [];
         
-        // Сначала пробуем без прокси (если CORS разрешен)
         try {
             const response = await fetchWithTimeout(targetUrl);
             if (response.ok) return response;
@@ -1162,7 +1240,6 @@
             errors.push('Direct: ' + e.message);
         }
 
-        // Пробуем через прокси
         for (const proxy of CONFIG.dataSources.proxies) {
             try {
                 const proxyUrl = proxy + encodeURIComponent(targetUrl);
@@ -1180,7 +1257,6 @@
     }
 
     // ==================== DATA FETCHING ====================
-    
     async function fetchCBRF() {
         try {
             log('Fetching CBRF rates...', 'info');
@@ -1218,12 +1294,10 @@
             const response = await fetchWithProxy(url);
             
             let data;
-            // Проверяем, нужно ли парсить JSON (прокси могут возвращать строку)
             const text = await response.text();
             try {
                 data = JSON.parse(text);
             } catch {
-                // Если allorigins - данные в поле contents
                 const wrapped = JSON.parse(text);
                 data = wrapped.contents ? JSON.parse(wrapped.contents) : wrapped;
             }
@@ -1262,14 +1336,10 @@
     async function fetchNews() {
         try {
             log('Fetching news...', 'info');
-            
-            // Используем RSS через прокси (без API ключа)
-            // Пока используем fallback с реальными паттернами
             state.news = generateRealisticNews();
             updateDataStatus('news', true);
             updateNewsFeed();
             return true;
-            
         } catch (error) {
             log('News failed: ' + error.message, 'error');
             updateDataStatus('news', false);
@@ -1394,11 +1464,13 @@
         
         if (!state.apiKey) {
             log('No API key provided', 'error');
+            showError('Please enter your OpenRouter API key first.');
             return;
         }
         
         if (!state.currentPrice || state.priceHistory.length < 30) {
             log('Insufficient data for analysis', 'warning');
+            showError('Waiting for more price data...');
             return;
         }
         
@@ -1408,13 +1480,12 @@
         btn.innerHTML = '<span class="loading-spinner"></span>Analyzing...';
         btn.disabled = true;
         
-        // Таймаут для AI запроса
         const timeoutId = setTimeout(() => {
             state.analysisInProgress = false;
             btn.innerHTML = originalText;
             btn.disabled = false;
             log('AI request timeout (30s)', 'error');
-            showError('AI request timed out. Please try again.');
+            showError('Request timed out. The model may be overloaded.');
         }, 30000);
         
         try {
@@ -1428,27 +1499,41 @@
             const recentPrices = state.priceHistory.slice(-20).map(h => h.price.toFixed(4));
             const avgSentiment = state.news.reduce((sum, n) => sum + (n.sentiment || 0), 0) / state.news.length;
             
-            const prompt = `Analyze USD/RUB forex market. Current: ${currentPrice} RUB (${change}%). 
-RSI: ${ind?.rsi?.toFixed(1)}, MACD: ${ind?.macd?.histogram?.toFixed(4)}, EMA20: ${ind?.ema20?.toFixed(2)}.
-News sentiment: ${avgSentiment.toFixed(2)}.
-Recent prices: ${recentPrices.join(', ')}.
+            const prompt = `Analyze USD/RUB forex market for trading signal.
 
-Respond ONLY in JSON:
+CURRENT DATA:
+- Price: ${currentPrice} RUB (${change}% change)
+- RSI(14): ${ind?.rsi?.toFixed(1)}
+- MACD: ${ind?.macd?.histogram?.toFixed(4)}
+- EMA20: ${ind?.ema20?.toFixed(2)}
+- ATR(14): ${ind?.atr?.toFixed(2)}
+- Support: ${ind?.support?.toFixed(2)}
+- Resistance: ${ind?.resistance?.toFixed(2)}
+- Trend: ${ind?.trend}
+
+NEWS SENTIMENT: ${avgSentiment.toFixed(2)} (range: -1 to +1)
+
+Respond ONLY with valid JSON:
 {
   "signal": "BUY" or "SELL" or "HOLD",
-  "confidence": 0-100,
-  "technical_score": 0-100,
-  "news_score": -100 to 100,
-  "trend_score": 0-100,
-  "reasoning": "Brief analysis in Russian (2 sentences)",
+  "confidence": number 0-100,
+  "technical_score": number 0-100,
+  "news_score": number -100 to 100,
+  "trend_score": number 0-100,
+  "reasoning": "Brief explanation in Russian (max 2 sentences)",
   "entry": number,
   "stop_loss": number,
   "take_profit": number
 }
 
-BUY=expect RUB strength(lower USD/RUB), SELL=expect RUB weakness. Be precise with numbers.`;
+Rules:
+- BUY = expect USD/RUB to decrease (RUB strength)
+- SELL = expect USD/RUB to increase (RUB weakness)
+- Confidence >75 requires strong technical + news alignment
+- Use support/resistance for entry/stop levels`;
 
-            const response = await fetch(CONFIG.openrouter.url, {
+            // Используем правильный endpoint и модель
+            const response = await fetch(`${CONFIG.openrouter.url}/chat/completions`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${state.apiKey}`,
@@ -1457,44 +1542,68 @@ BUY=expect RUB strength(lower USD/RUB), SELL=expect RUB weakness. Be precise wit
                     'X-Title': CONFIG.openrouter.siteName
                 },
                 body: JSON.stringify({
-                    model: CONFIG.openrouter.model,
+                    model: CONFIG.openrouter.models.v3, // deepseek/deepseek-chat
                     messages: [
-                        { role: 'system', content: 'You are a professional FOREX analyst. Respond only in valid JSON format.' },
+                        { 
+                            role: 'system', 
+                            content: 'You are a professional FOREX analyst specializing in USD/RUB. Always respond with valid JSON only.' 
+                        },
                         { role: 'user', content: prompt }
                     ],
                     temperature: 0.2,
-                    max_tokens: 600,
-                    timeout: 25 // Таймаут на стороне OpenRouter
+                    max_tokens: 800,
+                    top_p: 0.9,
+                    frequency_penalty: 0,
+                    presence_penalty: 0
                 })
             });
             
             clearTimeout(timeoutId);
             
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
+                const errorData = await response.json().catch(() => ({}));
+                const errorMsg = errorData.error?.message || `HTTP ${response.status}`;
+                
+                if (response.status === 401) {
+                    throw new Error('Invalid API key. Please check your OpenRouter key.');
+                } else if (response.status === 429) {
+                    throw new Error('Rate limit exceeded. Please wait a moment.');
+                } else if (response.status === 402) {
+                    throw new Error('Insufficient credits. Please top up your OpenRouter account.');
+                }
+                
+                throw new Error(errorMsg);
             }
             
             const data = await response.json();
             
-            if (!data.choices || !data.choices[0]) {
-                throw new Error('Invalid response structure');
+            if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+                console.error('Invalid response:', data);
+                throw new Error('Invalid response from API');
             }
             
             const content = data.choices[0].message.content;
             let result;
             
             try {
-                const jsonMatch = content.match(/\{[\s\S]*\}/);
-                result = JSON.parse(jsonMatch ? jsonMatch[0] : content);
+                // Пытаемся найти JSON в ответе
+                const jsonMatch = content.match(/\{[\s\S]*?\}/);
+                if (!jsonMatch) {
+                    throw new Error('No JSON found in response');
+                }
+                result = JSON.parse(jsonMatch[0]);
             } catch (e) {
-                console.error('Parse error:', content);
-                throw new Error('Failed to parse AI response');
+                console.error('Parse error. Content:', content);
+                throw new Error('Failed to parse AI response: ' + e.message);
             }
             
-            // Валидация результата
+            // Валидация полей
             if (!result.signal || !['BUY', 'SELL', 'HOLD'].includes(result.signal)) {
-                throw new Error('Invalid signal in response');
+                throw new Error('Invalid or missing signal in response');
+            }
+            
+            if (typeof result.confidence !== 'number' || result.confidence < 0 || result.confidence > 100) {
+                result.confidence = 50; // Default
             }
             
             updateAISignal(result);
@@ -1503,12 +1612,11 @@ BUY=expect RUB strength(lower USD/RUB), SELL=expect RUB weakness. Be precise wit
         } catch (error) {
             clearTimeout(timeoutId);
             log('AI Error: ' + error.message, 'error');
-            console.error(error);
+            console.error('Full error:', error);
             
-            // Fallback анализ
             const fallback = generateFallbackAnalysis();
             updateAISignal(fallback);
-            showError('AI failed, using fallback analysis: ' + error.message);
+            showError('AI Error: ' + error.message + '. Using fallback analysis.');
             
         } finally {
             state.analysisInProgress = false;
@@ -1519,7 +1627,17 @@ BUY=expect RUB strength(lower USD/RUB), SELL=expect RUB weakness. Be precise wit
 
     function generateFallbackAnalysis() {
         const ind = state.indicators;
-        if (!ind) return { signal: 'HOLD', confidence: 50, reasoning: 'No data' };
+        if (!ind) return { 
+            signal: 'HOLD', 
+            confidence: 50, 
+            reasoning: 'Insufficient data for analysis',
+            technical_score: 50,
+            news_score: 0,
+            trend_score: 50,
+            entry: state.currentPrice || 0,
+            stop_loss: 0,
+            take_profit: 0
+        };
         
         let score = 50;
         if (ind.rsi < 30) score += 20;
@@ -1537,10 +1655,10 @@ BUY=expect RUB strength(lower USD/RUB), SELL=expect RUB weakness. Be precise wit
         return {
             signal: signal,
             confidence: Math.abs(score - 50) * 2,
-            technical_score: score,
-            news_score: newsImpact * 100,
+            technical_score: Math.round(score),
+            news_score: Math.round(newsImpact * 100),
             trend_score: ind.trend === 'bullish' ? 70 : 30,
-            reasoning: `Fallback: RSI ${ind.rsi.toFixed(1)}, MACD ${ind.macd.histogram > 0 ? 'bull' : 'bear'}, News ${newsImpact > 0 ? 'pos' : 'neg'}`,
+            reasoning: `Fallback: RSI ${ind.rsi.toFixed(1)} (${ind.rsi < 30 ? 'oversold' : ind.rsi > 70 ? 'overbought' : 'neutral'}), MACD ${ind.macd.histogram > 0 ? 'bullish' : 'bearish'}, News ${newsImpact > 0 ? 'positive' : 'negative'}`,
             entry: ind.currentPrice,
             stop_loss: ind.currentPrice * (signal === 'BUY' ? 0.98 : 1.02),
             take_profit: ind.currentPrice * (signal === 'BUY' ? 1.03 : 0.97)
@@ -1756,49 +1874,92 @@ BUY=expect RUB strength(lower USD/RUB), SELL=expect RUB weakness. Be precise wit
         const keyInput = document.getElementById('openrouter-key');
         const key = keyInput.value.trim();
         const errorBanner = document.getElementById('api-error');
+        const successBanner = document.getElementById('api-success');
+        const debugInfo = document.getElementById('api-debug');
         
         errorBanner.classList.remove('show');
+        successBanner.classList.remove('show');
         
-        if (!key || !key.startsWith('sk-or-')) {
-            errorBanner.textContent = 'Invalid API key format. Must start with sk-or-';
+        if (!key) {
+            errorBanner.textContent = 'Please enter an API key';
             errorBanner.classList.add('show');
             return;
         }
         
-        // Проверка ключа тестовым запросом
+        if (!key.startsWith('sk-or-')) {
+            errorBanner.textContent = 'Invalid format. Key must start with "sk-or-"';
+            errorBanner.classList.add('show');
+            return;
+        }
+        
         const btn = document.getElementById('validate-btn');
         btn.innerHTML = '<span class="loading-spinner"></span>Validating...';
         btn.disabled = true;
         
         try {
-            const response = await fetchWithTimeout(CONFIG.openrouter.url, {
+            // Тестовый запрос к API
+            log('Testing API key...', 'info');
+            
+            const response = await fetch(`${CONFIG.openrouter.url}/chat/completions`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${key}`,
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'HTTP-Referer': CONFIG.openrouter.siteUrl,
+                    'X-Title': CONFIG.openrouter.siteName
                 },
                 body: JSON.stringify({
-                    model: CONFIG.openrouter.model,
-                    messages: [{ role: 'user', content: 'Test' }],
-                    max_tokens: 5
+                    model: CONFIG.openrouter.models.v3,
+                    messages: [{ role: 'user', content: 'Say "OK"' }],
+                    max_tokens: 10
                 })
-            }, 15000);
+            });
             
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error?.message || 'Invalid API key');
+                const error = await response.json().catch(() => ({}));
+                throw new Error(error.error?.message || `HTTP ${response.status}`);
             }
             
+            const data = await response.json();
+            
+            if (!data.choices || !data.choices[0]) {
+                throw new Error('Invalid API response');
+            }
+            
+            // Успех!
             state.apiKey = key;
             state.aiConnected = true;
-            updateDataStatus('ai', true);
-            log('OpenRouter connected successfully', 'success');
             
-            // Первый анализ
-            setTimeout(performAIAnalysis, 500);
+            // Сохраняем в localStorage
+            saveApiKey(key);
+            
+            updateDataStatus('ai', true);
+            
+            successBanner.textContent = '✓ Connected successfully! Model: ' + CONFIG.openrouter.models.v3;
+            successBanner.classList.add('show');
+            
+            document.getElementById('clear-key-btn').style.display = 'block';
+            document.getElementById('analyze-btn').disabled = false;
+            document.getElementById('ai-reasoning').textContent = 'AI is ready. Click "Analyze Now" or wait for auto-analysis.';
+            
+            debugInfo.style.display = 'block';
+            document.getElementById('debug-status').textContent = 'Connected to ' + CONFIG.openrouter.models.v3;
+            
+            log('OpenRouter connected: ' + CONFIG.openrouter.models.v3, 'success');
+            
+            // Первый анализ через 2 секунды
+            setTimeout(() => {
+                if (!state.lastAnalysis) {
+                    performAIAnalysis();
+                }
+            }, 2000);
             
             // Автоанализ
-            setInterval(() => {
+            if (state.autoAnalysisInterval) {
+                clearInterval(state.autoAnalysisInterval);
+            }
+            
+            state.autoAnalysisInterval = setInterval(() => {
                 if (document.visibilityState === 'visible' && !state.analysisInProgress) {
                     performAIAnalysis();
                 }
@@ -1808,6 +1969,10 @@ BUY=expect RUB strength(lower USD/RUB), SELL=expect RUB weakness. Be precise wit
             errorBanner.textContent = 'Connection failed: ' + error.message;
             errorBanner.classList.add('show');
             log('API validation failed: ' + error.message, 'error');
+            
+            debugInfo.style.display = 'block';
+            document.getElementById('debug-status').textContent = 'Error: ' + error.message;
+            
         } finally {
             btn.innerHTML = 'Connect AI';
             btn.disabled = false;
@@ -1824,6 +1989,16 @@ BUY=expect RUB strength(lower USD/RUB), SELL=expect RUB weakness. Be precise wit
         if (type === 'interval') {
             CONFIG.settings.analysisInterval = value * 1000;
             document.getElementById('interval-value').textContent = value + 's';
+            
+            // Перезапускаем автоанализ с новым интервалом
+            if (state.autoAnalysisInterval) {
+                clearInterval(state.autoAnalysisInterval);
+                state.autoAnalysisInterval = setInterval(() => {
+                    if (document.visibilityState === 'visible' && !state.analysisInProgress) {
+                        performAIAnalysis();
+                    }
+                }, CONFIG.settings.analysisInterval);
+            }
         } else if (type === 'newsWeight') {
             CONFIG.settings.newsWeight = parseInt(value);
             document.getElementById('news-weight-value').textContent = value + '%';
@@ -1896,20 +2071,16 @@ BUY=expect RUB strength(lower USD/RUB), SELL=expect RUB weakness. Be precise wit
     }
 
     function showError(msg) {
-        // Показываем ошибку временно
         const reasoning = document.getElementById('ai-reasoning');
         const original = reasoning.textContent;
-        reasoning.textContent = '⚠️ ' + msg;
-        reasoning.style.borderLeftColor = 'var(--accent-sell)';
+        reasoning.innerHTML = '<span style="color: var(--accent-sell);">⚠️ ' + msg + '</span>';
         setTimeout(() => {
             reasoning.textContent = original;
-            reasoning.style.borderLeftColor = 'var(--accent-ai)';
-        }, 5000);
+        }, 8000);
     }
 
     // ==================== MAIN LOOP ====================
     async function updateData() {
-        // Параллельные запросы с приоритетом
         const [cbrfData, moexData] = await Promise.allSettled([
             fetchCBRF(),
             fetchMOEX()
@@ -1921,7 +2092,6 @@ BUY=expect RUB strength(lower USD/RUB), SELL=expect RUB weakness. Be precise wit
             updatePriceDisplay(moexData.value);
         }
         
-        // Новости реже
         if (state.news.length === 0 || Date.now() - state.news[0].time > 600000) {
             await fetchNews();
         }
@@ -1932,13 +2102,18 @@ BUY=expect RUB strength(lower USD/RUB), SELL=expect RUB weakness. Be precise wit
         initChart();
         log('USD/RUB Terminal initialized', 'info');
         
-        // Первичная загрузка
+        // Проверяем сохраненный ключ
+        const savedKey = loadApiKey();
+        if (savedKey) {
+            log('Found saved API key, validating...', 'info');
+            document.getElementById('openrouter-key').value = savedKey;
+            // Автоматически подключаемся
+            setTimeout(validateApiKey, 1000);
+        }
+        
         await updateData();
         
-        // Регулярные обновления
-        setInterval(updateData, 30000); // Каждые 30 сек
-        
-        // Обновление позиций
+        setInterval(updateData, 30000);
         setInterval(updatePositions, 5000);
     });
 
