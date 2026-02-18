@@ -229,15 +229,51 @@
             loading.style.display = 'none';
         }
 
-        // ==================== 3. NEWS (FIXED: более надежная загрузка) ==================
+        // ==================== 3. NEWS (ULTRA RELIABLE) ==================
         async function fetchNews() {
             const list = document.getElementById('newsList');
             list.innerHTML = '<div style="color:#8b949e">Загрузка РБК...</div>';
             
-            // Источники RSS
             const sources = [
                 { name: 'РБК', url: 'https://rssexport.rbc.ru/rbcnews/news/20/full.rss' },
                 { name: 'Finam', url: 'https://www.finam.ru/analysis/conews/rsspoint' }
+            ];
+
+            // Прокси в порядке предпочтения (если первый упадёт, пробуем следующий)
+            const proxies = [
+                { name: 'rss2json', fn: async (src) => {
+                    const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(src.url)}`;
+                    const res = await fetch(apiUrl);
+                    const data = await res.json();
+                    if (data.status !== 'ok') throw new Error('rss2json error');
+                    return data.items || [];
+                }},
+                { name: 'allorigins', fn: async (src) => {
+                    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(src.url)}`;
+                    const res = await fetch(proxyUrl);
+                    const text = await res.text();
+                    const parser = new DOMParser();
+                    const xml = parser.parseFromString(text, "text/xml");
+                    const items = xml.querySelectorAll("item");
+                    return Array.from(items).map(item => ({
+                        title: item.querySelector('title')?.textContent || '',
+                        link: item.querySelector('link')?.textContent || '',
+                        pubDate: item.querySelector('pubDate')?.textContent || ''
+                    }));
+                }},
+                { name: 'codetabs', fn: async (src) => {
+                    const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(src.url)}`;
+                    const res = await fetch(proxyUrl);
+                    const text = await res.text();
+                    const parser = new DOMParser();
+                    const xml = parser.parseFromString(text, "text/xml");
+                    const items = xml.querySelectorAll("item");
+                    return Array.from(items).map(item => ({
+                        title: item.querySelector('title')?.textContent || '',
+                        link: item.querySelector('link')?.textContent || '',
+                        pubDate: item.querySelector('pubDate')?.textContent || ''
+                    }));
+                }}
             ];
 
             allNews = [];
@@ -245,88 +281,54 @@
             const now = new Date();
 
             for (const src of sources) {
-                let success = false;
-                
-                // ---- СПОСОБ 1: rss2json.com (преобразует RSS в JSON, удобно) ----
-                try {
-                    const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(src.url)}`;
-                    const res = await fetch(apiUrl);
-                    const data = await res.json();
-                    
-                    if (data.status === 'ok') {
-                        const items = data.items || [];
-                        items.slice(0, 5).forEach(item => {
-                            const title = item.title;
-                            const link = item.link;
-                            const date = new Date(item.pubDate);
-                            const hoursAgo = (now - date) / 3600000;
-                            
-                            if (hoursAgo < 24) allNews.push({ title, link });
-                            
-                            const timeStr = hoursAgo < 1 ? 'Только что' : hoursAgo < 24 ? `${Math.round(hoursAgo)}ч назад` : date.toLocaleDateString('ru-RU');
-                            
-                            newsHtml += `
-                                <div class="news-item">
-                                    <span class="news-time">${src.name} • ${timeStr}</span>
-                                    <a href="${link}" target="_blank" style="color:var(--text);text-decoration:none;">${title}</a>
-                                </div>
-                            `;
-                        });
-                        success = true;
-                    }
-                } catch(e) {
-                    console.warn(`rss2json failed for ${src.name}`, e);
-                }
+                let items = [];
+                let usedProxy = null;
 
-                // ---- СПОСОБ 2: allorigins (если первый не сработал) ----
-                if (!success) {
+                // Пробуем каждый прокси по очереди
+                for (const proxy of proxies) {
                     try {
-                        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(src.url)}`;
-                        const res = await fetch(proxyUrl);
-                        const text = await res.text();
-                        const parser = new DOMParser();
-                        const xml = parser.parseFromString(text, "text/xml");
-                        const items = xml.querySelectorAll("item");
-                        
-                        items.forEach((item, index) => {
-                            if(index >= 5) return;
-                            
-                            const titleEl = item.querySelector("title");
-                            const linkEl = item.querySelector("link");
-                            const pubDateEl = item.querySelector("pubDate");
-                            
-                            if(!titleEl || !linkEl) return;
-
-                            const title = titleEl.textContent;
-                            const link = linkEl.textContent;
-                            const date = pubDateEl ? new Date(pubDateEl.textContent) : new Date();
-                            
-                            const hoursAgo = (now - date) / 3600000;
-                            
-                            if (hoursAgo < 24) allNews.push({ title, link });
-
-                            const timeStr = hoursAgo < 1 ? 'Только что' : hoursAgo < 24 ? `${Math.round(hoursAgo)}ч назад` : date.toLocaleDateString('ru-RU');
-                            
-                            newsHtml += `
-                                <div class="news-item">
-                                    <span class="news-time">${src.name} • ${timeStr}</span>
-                                    <a href="${link}" target="_blank" style="color:var(--text);text-decoration:none;">${title}</a>
-                                </div>
-                            `;
-                        });
-                        success = true;
-                    } catch(e2) {
-                        console.error(`allorigins also failed for ${src.name}`, e2);
+                        console.log(`Trying ${proxy.name} for ${src.name}...`);
+                        items = await proxy.fn(src);
+                        if (items.length > 0) {
+                            usedProxy = proxy.name;
+                            break; // успех, выходим из цикла прокси
+                        }
+                    } catch (e) {
+                        console.warn(`${proxy.name} failed for ${src.name}:`, e);
                     }
                 }
+
+                if (!usedProxy) {
+                    console.error(`All proxies failed for ${src.name}`);
+                    continue; // переходим к следующему источнику
+                }
+
+                console.log(`Success with ${usedProxy} for ${src.name}, got ${items.length} items`);
+
+                items.slice(0, 5).forEach(item => {
+                    const title = item.title;
+                    const link = item.link;
+                    const date = item.pubDate ? new Date(item.pubDate) : new Date();
+                    const hoursAgo = (now - date) / 3600000;
+
+                    if (hoursAgo < 24) allNews.push({ title, link });
+
+                    const timeStr = hoursAgo < 1 ? 'Только что' : hoursAgo < 24 ? `${Math.round(hoursAgo)}ч назад` : date.toLocaleDateString('ru-RU');
+
+                    newsHtml += `
+                        <div class="news-item">
+                            <span class="news-time">${src.name} • ${timeStr}</span>
+                            <a href="${link}" target="_blank" style="color:var(--text);text-decoration:none;">${title}</a>
+                        </div>
+                    `;
+                });
             }
 
             // Если удалось получить хоть какие-то новости — отображаем
             if (newsHtml) {
                 list.innerHTML = newsHtml;
             } else {
-                list.innerHTML = '<div style="color:#d29922; font-size:11px; padding:5px;">Не удалось загрузить ленту.<br>Проверьте интернет.</div>';
-                // Заглушка для AI
+                list.innerHTML = '<div style="color:#d29922; font-size:11px; padding:5px;">Не удалось загрузить ленту.<br>Проверьте интернет или консоль (F12).</div>';
                 allNews = [{ title: "Нет свежих новостей за последние 24 часа" }];
             }
         }
