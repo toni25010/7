@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Si AI Terminal | RBC News</title>
+    <title>Si AI Terminal | Finam News</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #8957e5; --buy: #238636; --sell: #f85149; }
@@ -14,9 +14,6 @@
         .card { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
         
         #chart { height: 400px; width: 100%; position: relative; background: var(--card); border-radius: 12px; overflow: hidden; }
-        .tf-selector { display: flex; gap: 6px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
-        .tf-btn { background: transparent; color: var(--text); border: 1px solid transparent; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; opacity: 0.6; }
-        .tf-btn.active { background: var(--accent); color: white; opacity: 1; }
         
         .ticker-wrap { display: flex; justify-content: space-between; background: #0d1117; padding: 12px; border-radius: 12px; margin-bottom: 12px; border: 1px solid var(--border); }
         .ticker-val { font-size: 24px; font-weight: 700; font-family: 'Courier New'; }
@@ -54,17 +51,11 @@
     </style>
 </head>
 <body>
-    <h2>Si AI Terminal | RBC News</h2>
+    <h2>Si AI Terminal | Finam News</h2>
 
     <div class="grid">
         <!-- LEFT -->
         <div class="card">
-            <div class="tf-selector" id="tfSelector">
-                <button class="tf-btn active" data-tf="15" type="button">15M</button>
-                <button class="tf-btn" data-tf="60" type="button">1H</button>
-                <button class="tf-btn" data-tf="1440" type="button">1D</button>
-            </div>
-            
             <div id="chart"><div id="loading"><div class="spinner"></div> Загрузка...</div></div>
             
             <div style="display: flex; justify-content: space-between; margin-top: 6px; padding: 0 4px; font-size: 11px; color: #8b949e;">
@@ -73,7 +64,7 @@
             </div>
 
             <div class="news-box" id="newsBox">
-                <div style="font-weight: 600; color: #3b82f6; margin-bottom: 8px;">Бизнес новости (РБК)</div>
+                <div style="font-weight: 600; color: #3b82f6; margin-bottom: 8px;">Новости Finam</div>
                 <div id="newsList">Загрузка...</div>
             </div>
         </div>
@@ -133,7 +124,7 @@
         let priceLines = [];
         let historyData = [];
         let allNews = []; 
-        let currentTf = 15;
+        const currentTf = 60; // только 1H
 
         // ==================== 1. SMART TICKER ====================
         const antiCache = () => `_=${Date.now()}`;
@@ -200,16 +191,15 @@
 
         // Преобразование времени MOEX (MSK) в UTC timestamp
         function parseMoexTime(dateStr) {
-            // dateStr example: "2025-02-18 10:00:00" (MSK)
             const [datePart, timePart] = dateStr.split(' ');
             const [year, month, day] = datePart.split('-').map(Number);
             const [hour, minute, second] = timePart.split(':').map(Number);
-            // Создаём UTC timestamp, вычитая 3 часа (MSK → UTC)
             return Math.floor(Date.UTC(year, month-1, day, hour-3, minute, second) / 1000);
         }
 
-        async function fetchCandles(tf = 15) {
+        async function fetchCandles() {
             if(!currentTicker) return;
+            console.log('Fetching candles at', new Date().toLocaleTimeString());
             const loading = document.getElementById('loading');
             loading.style.display = 'flex';
             
@@ -217,7 +207,7 @@
             d.setDate(d.getDate() - 7);
             const from = d.toISOString().split('T')[0];
             
-            const url = `${MOEX_BASE}/securities/${currentTicker}/candles.json?interval=${tf}&from=${from}&${antiCache()}`;
+            const url = `${MOEX_BASE}/securities/${currentTicker}/candles.json?interval=${currentTf}&from=${from}&${antiCache()}`;
             
             try {
                 const res = await fetch(url);
@@ -239,171 +229,54 @@
             loading.style.display = 'none';
         }
 
-        // ==================== 3. NEWS (ULTRA RELIABLE + TIMEOUT) ==================
-        async function fetchWithTimeout(url, timeout = 10000) {
-            const controller = new AbortController();
-            const id = setTimeout(() => controller.abort(), timeout);
-            try {
-                const response = await fetch(url, { signal: controller.signal });
-                clearTimeout(id);
-                return response;
-            } catch (error) {
-                clearTimeout(id);
-                throw error;
-            }
-        }
-
+        // ==================== 3. NEWS (только Finam через rss2json) ==================
         async function fetchNews() {
             const list = document.getElementById('newsList');
-            list.innerHTML = '<div style="color:#8b949e">Загрузка РБК...</div>';
+            list.innerHTML = '<div style="color:#8b949e">Загрузка Finam...</div>';
             
-            // Расширенный список источников
-            const sources = [
-                { name: 'РБК', url: 'https://rssexport.rbc.ru/rbcnews/news/20/full.rss' },
-                { name: 'РБК (alt)', url: 'https://static.feed.rbc.ru/rbc/logical/footer/news.rss' },
-                { name: 'Finam', url: 'https://www.finam.ru/analysis/conews/rsspoint' },
-                { name: 'Interfax', url: 'https://www.interfax.ru/rss.asp' }
-            ];
-
-            // Прокси в порядке предпочтения
-            const proxies = [
-                { name: 'rss2json', fn: async (src) => {
-                    const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(src.url)}`;
-                    const res = await fetchWithTimeout(apiUrl);
-                    const data = await res.json();
-                    if (data.status !== 'ok') throw new Error('rss2json error');
-                    return data.items || [];
-                }},
-                { name: 'corsproxy', fn: async (src) => {
-                    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(src.url)}`;
-                    const res = await fetchWithTimeout(proxyUrl);
-                    const text = await res.text();
-                    const parser = new DOMParser();
-                    const xml = parser.parseFromString(text, "text/xml");
-                    const items = xml.querySelectorAll("item");
-                    return Array.from(items).map(item => ({
-                        title: item.querySelector('title')?.textContent || '',
-                        link: item.querySelector('link')?.textContent || '',
-                        pubDate: item.querySelector('pubDate')?.textContent || ''
-                    }));
-                }},
-                { name: 'thingproxy', fn: async (src) => {
-                    const proxyUrl = `https://thingproxy.freeboard.io/fetch/${src.url}`;
-                    const res = await fetchWithTimeout(proxyUrl);
-                    const text = await res.text();
-                    const parser = new DOMParser();
-                    const xml = parser.parseFromString(text, "text/xml");
-                    const items = xml.querySelectorAll("item");
-                    return Array.from(items).map(item => ({
-                        title: item.querySelector('title')?.textContent || '',
-                        link: item.querySelector('link')?.textContent || '',
-                        pubDate: item.querySelector('pubDate')?.textContent || ''
-                    }));
-                }},
-                { name: 'allorigins', fn: async (src) => {
-                    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(src.url)}`;
-                    const res = await fetchWithTimeout(proxyUrl);
-                    const text = await res.text();
-                    const parser = new DOMParser();
-                    const xml = parser.parseFromString(text, "text/xml");
-                    const items = xml.querySelectorAll("item");
-                    return Array.from(items).map(item => ({
-                        title: item.querySelector('title')?.textContent || '',
-                        link: item.querySelector('link')?.textContent || '',
-                        pubDate: item.querySelector('pubDate')?.textContent || ''
-                    }));
-                }},
-                { name: 'codetabs', fn: async (src) => {
-                    const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(src.url)}`;
-                    const res = await fetchWithTimeout(proxyUrl);
-                    const text = await res.text();
-                    const parser = new DOMParser();
-                    const xml = parser.parseFromString(text, "text/xml");
-                    const items = xml.querySelectorAll("item");
-                    return Array.from(items).map(item => ({
-                        title: item.querySelector('title')?.textContent || '',
-                        link: item.querySelector('link')?.textContent || '',
-                        pubDate: item.querySelector('pubDate')?.textContent || ''
-                    }));
-                }}
-            ];
-
+            const source = { name: 'Finam', url: 'https://www.finam.ru/analysis/conews/rsspoint' };
+            
             allNews = [];
             let newsHtml = '';
             const now = new Date();
 
-            for (const src of sources) {
-                let items = [];
-                let usedProxy = null;
-
-                for (const proxy of proxies) {
-                    try {
-                        console.log(`Trying ${proxy.name} for ${src.name}...`);
-                        items = await proxy.fn(src);
-                        if (items.length > 0) {
-                            usedProxy = proxy.name;
-                            break;
-                        }
-                    } catch (e) {
-                        console.warn(`${proxy.name} failed for ${src.name}:`, e.message || e);
-                    }
-                }
-
-                if (!usedProxy) {
-                    console.error(`All proxies failed for ${src.name}`);
-                    continue;
-                }
-
-                console.log(`Success with ${usedProxy} for ${src.name}, got ${items.length} items`);
-
-                items.slice(0, 5).forEach(item => {
-                    const title = item.title;
-                    const link = item.link;
-                    let date = new Date();
-                    if (item.pubDate) {
-                        date = new Date(item.pubDate);
-                        if (isNaN(date)) date = new Date();
-                    }
-                    const hoursAgo = (now - date) / 3600000;
-
-                    if (hoursAgo < 24) allNews.push({ title, link });
-
-                    const timeStr = hoursAgo < 1 ? 'Только что' : hoursAgo < 24 ? `${Math.round(hoursAgo)}ч назад` : date.toLocaleDateString('ru-RU');
-
-                    newsHtml += `
-                        <div class="news-item">
-                            <span class="news-time">${src.name} • ${timeStr}</span>
-                            <a href="${link}" target="_blank" style="color:var(--text);text-decoration:none;">${title}</a>
-                        </div>
-                    `;
-                });
+            try {
+                const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(source.url)}`;
+                const res = await fetch(apiUrl);
+                const data = await res.json();
                 
-                if (allNews.length >= 10) break;
+                if (data.status === 'ok' && data.items) {
+                    const items = data.items.slice(0, 10);
+                    items.forEach(item => {
+                        const title = item.title;
+                        const link = item.link;
+                        const date = new Date(item.pubDate);
+                        const hoursAgo = (now - date) / 3600000;
+                        
+                        if (hoursAgo < 24) allNews.push({ title, link });
+                        
+                        const timeStr = hoursAgo < 1 ? 'Только что' : hoursAgo < 24 ? `${Math.round(hoursAgo)}ч назад` : date.toLocaleDateString('ru-RU');
+                        
+                        newsHtml += `
+                            <div class="news-item">
+                                <span class="news-time">${source.name} • ${timeStr}</span>
+                                <a href="${link}" target="_blank" style="color:var(--text);text-decoration:none;">${title}</a>
+                            </div>
+                        `;
+                    });
+                } else {
+                    throw new Error('Неверный ответ от rss2json');
+                }
+            } catch (e) {
+                console.error('Finam news error:', e);
+                newsHtml = '<div style="color:#d29922; font-size:11px; padding:5px;">Не удалось загрузить новости Finam.</div>';
+                allNews = [{ title: "Нет новостей Finam" }];
             }
 
-            if (newsHtml) {
-                list.innerHTML = newsHtml;
-            } else {
-                // Демо-новости, если ничего не загрузилось
-                list.innerHTML = '<div style="color:#d29922; font-size:11px; padding:5px;">Не удалось загрузить ленту. Демо-новости:</div>';
-                allNews = [
-                    { title: "Рынок ожидает решения ЦБ по ставке" },
-                    { title: "Нефть дорожает на фоне геополитики" },
-                    { title: "Рубль стабилен к основным валютам" }
-                ];
-                allNews.forEach(item => {
-                    newsHtml += `
-                        <div class="news-item">
-                            <span class="news-time">Демо • только что</span>
-                            <span style="color:var(--text);">${item.title}</span>
-                        </div>
-                    `;
-                });
-                list.innerHTML += newsHtml;
-            }
+            list.innerHTML = newsHtml || '<div style="color:#d29922;">Нет новостей</div>';
         }
 
-        // ==================== 4. REALTIME CHART (исправлено) ==================
+        // ==================== 4. REALTIME CHART ==================
         function updateChartLive(price) {
             if (!candleSeries || !historyData.length) return;
 
@@ -412,9 +285,7 @@
             const nowMsk = nowUtc + mskOffset;
 
             const tfSeconds = currentTf * 60;
-            // Начало текущего интервала по московскому времени
             const startOfIntervalMsk = Math.floor(nowMsk / tfSeconds) * tfSeconds;
-            // Переводим в UTC
             const currentCandleTime = startOfIntervalMsk - mskOffset;
 
             let lastCandle = historyData[historyData.length - 1];
@@ -424,7 +295,6 @@
                 if (price > lastCandle.high) lastCandle.high = price;
                 if (price < lastCandle.low) lastCandle.low = price;
             } else {
-                // Новая свеча: открытие по цене закрытия предыдущей
                 historyData.push({ time: currentCandleTime, open: lastCandle.close, high: price, low: price, close: price });
                 if (historyData.length > 500) historyData.shift();
             }
@@ -495,10 +365,16 @@
 
         async function runAnalysis() {
             const key = document.getElementById('api_key_input').value.trim();
-            if(!key) { alert("Введите API Key"); return; }
+            if(!key) { 
+                console.log("Анализ пропущен: нет API ключа");
+                return; 
+            }
             
             const tech = calcTech();
-            if (!tech) { alert("Недостаточно данных."); return; }
+            if (!tech) { 
+                console.log("Анализ пропущен: недостаточно данных");
+                return; 
+            }
 
             document.getElementById('signal_text').innerText = "АНАЛИЗ...";
             document.getElementById('tradePlanBox').style.display = 'none';
@@ -561,6 +437,38 @@ JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..
             }
         }
 
+        // ==================== 8. SCHEDULED UPDATES ==================
+        function scheduleNextCandleUpdate() {
+            const now = new Date();
+            const target = new Date(now);
+            target.setMinutes(16, 0, 0); // минуты = 16, секунды = 0, миллисекунды = 0
+            if (target <= now) {
+                // если уже прошло 16 минут текущего часа, переходим на следующий час
+                target.setHours(target.getHours() + 1);
+            }
+            const delay = target - now;
+            console.log(`Next candle update scheduled at ${target.toLocaleTimeString()} (in ${Math.round(delay/1000)} seconds)`);
+            setTimeout(async () => {
+                await fetchCandles();
+                scheduleNextCandleUpdate(); // перепланировать после выполнения
+            }, delay);
+        }
+
+        // ==================== 9. AUTO ANALYSIS ==================
+        let autoAnalysisInterval = null;
+        function startAutoAnalysis() {
+            if (autoAnalysisInterval) clearInterval(autoAnalysisInterval);
+            autoAnalysisInterval = setInterval(() => {
+                const key = document.getElementById('api_key_input').value.trim();
+                if (key) {
+                    console.log('Running auto analysis at', new Date().toLocaleTimeString());
+                    runAnalysis();
+                } else {
+                    console.log('Auto analysis skipped: no API key');
+                }
+            }, 300000); // 5 минут = 300000 мс
+        }
+
         // ==================== INIT ==================
         function saveKey() { localStorage.setItem('si_k', document.getElementById('api_key_input').value); alert("OK"); }
 
@@ -569,20 +477,15 @@ JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..
             if(k) document.getElementById('api_key_input').value=k;
 
             await detectActiveContract();
-            await Promise.all([fetchQuotes(), fetchCandles(15), fetchNews()]);
+            await Promise.all([fetchQuotes(), fetchCandles(), fetchNews()]);
 
             setInterval(fetchQuotes, 2000); 
-            setInterval(() => fetchCandles(currentTf), 900000);
-            setInterval(fetchNews, 600000); // Обновляем новости раз в 10 мин
+            setInterval(fetchNews, 600000); // новости раз в 10 мин
 
-            document.getElementById('tfSelector').onclick = (e) => {
-                const btn = e.target.closest('.tf-btn');
-                if(!btn) return;
-                document.querySelectorAll('.tf-btn').forEach(b=>b.classList.remove('active'));
-                btn.classList.add('active');
-                currentTf = parseInt(btn.dataset.tf);
-                fetchCandles(currentTf);
-            };
+            // Запускаем планировщик обновления свечей
+            scheduleNextCandleUpdate();
+            // Запускаем автоанализ
+            startAutoAnalysis();
         };
     </script>
 </body>
