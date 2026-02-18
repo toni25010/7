@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Si AI Terminal | News Fixed</title>
+    <title>Si AI Terminal | RBC News Feed</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
-        :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #8957e5; --buy: #238636; --sell: #f85149; --hold: #d29922; }
+        :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #8957e5; --buy: #238636; --sell: #f85149; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 12px; min-height: 100vh; }
         h2 { text-align: center; font-size: clamp(1.1rem, 4vw, 1.6rem); margin: 0 0 12px 0; }
@@ -25,16 +25,16 @@
         .signal-display { text-align: center; padding: 12px; border-radius: 16px; border: 2px solid var(--border); margin-bottom: 12px; transition: 0.3s; }
         .signal-display.buy { border-color: var(--buy); color: #3fb950; background: rgba(35, 134, 54, 0.1); }
         .signal-display.sell { border-color: var(--sell); color: var(--sell); background: rgba(248, 81, 73, 0.1); }
-        .signal-display.hold { border-color: var(--hold); color: var(--hold); background: rgba(210, 153, 34, 0.1); }
+        .signal-display.hold { border-color: #d29922; color: #d29922; background: rgba(210, 153, 34, 0.1); }
         
         .trade-plan-box { margin-top: 10px; background: #0d1117; border-radius: 12px; padding: 10px; border: 1px solid var(--border); display: none; }
         .plan-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
         .plan-row:last-child { border-bottom: none; }
         .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
         
-        .news-box { margin-top: 12px; max-height: 180px; overflow-y: auto; font-size: 12px; }
-        .news-item { padding: 8px; border-left: 2px solid var(--accent); margin-bottom: 6px; background: rgba(255,255,255,0.02); }
-        .news-time { color: #58a6ff; font-size: 10px; font-weight: 600; margin-bottom: 2px; display: block; }
+        .news-box { margin-top: 12px; max-height: 200px; overflow-y: auto; font-size: 12px; }
+        .news-item { padding: 8px; border-left: 2px solid #3b82f6; margin-bottom: 6px; background: rgba(255,255,255,0.02); }
+        .news-time { color: #60a5fa; font-size: 10px; font-weight: 600; margin-bottom: 2px; display: block; }
         
         .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
         .stat-item { background: #0d1117; padding: 8px; border-radius: 6px; font-size: 12px; border: 1px solid var(--border); }
@@ -54,7 +54,7 @@
     </style>
 </head>
 <body>
-    <h2>Si AI Terminal | Live + News AI</h2>
+    <h2>Si AI Terminal | RBC News</h2>
 
     <div class="grid">
         <!-- LEFT -->
@@ -73,7 +73,7 @@
             </div>
 
             <div class="news-box" id="newsBox">
-                <div style="font-weight: 600; color: var(--accent); margin-bottom: 8px;">Новости (Финам/РБК/ЦБ)</div>
+                <div style="font-weight: 600; color: #3b82f6; margin-bottom: 8px;">Бизнес новости (РБК)</div>
                 <div id="newsList">Загрузка...</div>
             </div>
         </div>
@@ -132,7 +132,7 @@
         let candleSeries = null;
         let priceLines = [];
         let historyData = [];
-        let allNews = []; // Глобальный массив новостей
+        let allNews = []; 
         let currentTf = 15;
 
         // ==================== 1. SMART TICKER ====================
@@ -172,7 +172,7 @@
             }
         }
 
-        // ==================== 2. DATA (UNTOUCHED) ==================
+        // ==================== 2. DATA ==================
         async function fetchQuotes() {
             if(!currentTicker) return;
             const url = `${MOEX_BASE}/securities/${currentTicker}.json?iss.only=marketdata&${antiCache()}`;
@@ -229,7 +229,84 @@
             loading.style.display = 'none';
         }
 
-        // ==================== 3. REALTIME CHART LOGIC ==================
+        // ==================== 3. NEWS (FIXED: RBC RSS) ==================
+        async function fetchNews() {
+            const list = document.getElementById('newsList');
+            list.innerHTML = '<div style="color:#8b949e">Загрузка РБК...</div>';
+            
+            // Источники (RBC - самый надежный для бизнеса)
+            // Используем allorigins для обхода CORS
+            const sources = [
+                { name: 'РБК', url: 'https://rssexport.rbc.ru/rbcnews/news/20/full.rss' },
+                { name: 'Finam', url: 'https://www.finam.ru/analysis/conews/rsspoint' }
+            ];
+
+            allNews = []; // Сброс
+
+            for (const src of sources) {
+                if (allNews.length > 5) break; // Если уже набрали, выходим
+                
+                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(src.url)}`;
+                
+                try {
+                    const res = await fetch(proxyUrl);
+                    const text = await res.text();
+                    const parser = new DOMParser();
+                    const xml = parser.parseFromString(text, "text/xml");
+                    const items = xml.querySelectorAll("item");
+                    
+                    let html = '';
+                    const now = new Date();
+
+                    items.forEach((item, index) => {
+                        if(index >= 5) return;
+                        
+                        const titleEl = item.querySelector("title");
+                        const linkEl = item.querySelector("link");
+                        const pubDateEl = item.querySelector("pubDate");
+                        
+                        if(!titleEl || !linkEl) return;
+
+                        const title = titleEl.textContent;
+                        const link = linkEl.textContent;
+                        const date = pubDateEl ? new Date(pubDateEl.textContent) : new Date();
+                        
+                        const hoursAgo = (now - date) / 3600000;
+                        
+                        // Добавляем в массив для AI (только свежие)
+                        if (hoursAgo < 24) allNews.push({ title, link });
+
+                        const timeStr = hoursAgo < 1 ? 'Только что' : hoursAgo < 24 ? `${Math.round(hoursAgo)}ч назад` : date.toLocaleDateString('ru-RU');
+                        
+                        html += `
+                            <div class="news-item">
+                                <span class="news-time">${src.name} • ${timeStr}</span>
+                                <a href="${link}" target="_blank" style="color:var(--text);text-decoration:none;">${title}</a>
+                            </div>
+                        `;
+                    });
+
+                    // Добавляем в DOM только если еще пусто
+                    if (list.innerHTML.includes('Загрузка')) {
+                        list.innerHTML = html;
+                    } else {
+                        list.innerHTML += html; // Или добавляем к существующим
+                    }
+                    
+                } catch(e) {
+                    console.error(`Failed to fetch ${src.name}`, e);
+                }
+            }
+
+            // Если совсем ничего нет - заглушка
+            if (allNews.length === 0) {
+                list.innerHTML = '<div style="color:#d29922; font-size:11px; padding:5px;">Не удалось загрузить ленту.<br>Проверьте интернет.</div>';
+                // Fallback данные для AI, чтобы он не падал
+                allNews = [{title: "Нет свежих новостей за последние 24 часа"}];
+            }
+        }
+
+        // ==================== 4. REALTIME CHART ==================
         function updateChartLive(price) {
             if (!candleSeries || !historyData.length) return;
 
@@ -244,64 +321,10 @@
                 if (price > lastCandle.high) lastCandle.high = price;
                 if (price < lastCandle.low) lastCandle.low = price;
             } else {
-                const newCandle = {
-                    time: currentCandleTime,
-                    open: lastCandle.close,
-                    high: price,
-                    low: price,
-                    close: price
-                };
-                historyData.push(newCandle);
+                historyData.push({ time: currentCandleTime, open: lastCandle.close, high: price, low: price, close: price });
                 if (historyData.length > 500) historyData.shift();
             }
-
             candleSeries.update(historyData[historyData.length - 1]);
-        }
-
-        // ==================== 4. NEWS MODULE (FIXED) ==================
-        async function fetchNews() {
-            const list = document.getElementById('newsList');
-            
-            // Формируем поисковый запрос для Google News (ЦБ РФ ИЛИ Курс ИЛИ Нефть ИЛИ Санкции)
-            const query = encodeURIComponent('ЦБ РФ OR Курс доллара OR Нефть Brent OR Санкции экономика');
-            const rssUrl = `https://news.google.com/rss/search?q=${query}&hl=ru&gl=RU&ceid=RU:ru`;
-            
-            // Используем rss2json как надежный парсер
-            const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}&count=15&api_key=your_api_key_here`;
-
-            try {
-                const res = await fetch(apiUrl);
-                const data = await res.json();
-                
-                if (data.status === 'ok' && data.items) {
-                    // Фильтруем по свежести (последние 48 часов)
-                    const now = new Date();
-                    allNews = data.items.filter(n => {
-                        const pubDate = new Date(n.pubDate);
-                        const hoursDiff = (now - pubDate) / 3600000;
-                        return hoursDiff < 48;
-                    }).slice(0, 8); // Берем топ-8
-
-                    if (allNews.length === 0) allNews = data.items.slice(0, 5); // Фолбэк если нет свежих
-
-                    list.innerHTML = allNews.map(n => {
-                        const pDate = new Date(n.pubDate);
-                        const timeStr = pDate.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
-                        const dateStr = pDate.toLocaleDateString('ru-RU');
-                        return `
-                            <div class="news-item">
-                                <span class="news-time">${dateStr} ${timeStr}</span>
-                                <a href="${n.link}" target="_blank" style="color:var(--text);text-decoration:none;">${n.title}</a>
-                            </div>
-                        `;
-                    }).join('');
-                } else {
-                    throw new Error("RSS parse error");
-                }
-            } catch(e) {
-                list.innerHTML = "<div style='color:var(--sell)'>Не удалось загрузить новости (попробуйте обновить)</div>";
-                allNews = []; // Очищаем список при ошибке
-            }
         }
 
         // ==================== 5. CHART RENDER ==================
@@ -343,10 +366,9 @@
             if(q.time) document.getElementById('lastTradeTime').innerText = "Сделка: " + new Date(q.time).toLocaleTimeString('ru-RU');
         }
 
-        // ==================== 7. ANALYSIS (AI FIXED) ==================
+        // ==================== 7. ANALYSIS ==================
         function calcTech() {
             if (historyData.length < 20) return null;
-            
             const c = historyData.map(d=>d.close);
             let g=0,l=0;
             for(let i=c.length-14;i<c.length;i++){ const d=c[i]-c[i-1]; if(d>0)g+=d; else l-=d; }
@@ -378,37 +400,26 @@
             document.getElementById('tradePlanBox').style.display = 'none';
             document.getElementById('ai_desc').style.display = 'none';
 
-            // === FORM NEWS CONTEXT FOR AI ===
-            let newsContext = "НОВОСТНОЙ ФОН (последние 24 часа):\n";
+            let newsContext = "НОВОСТНОЙ ФОН:\n";
             if (allNews.length > 0) {
-                newsContext += "Важно! Учитывай эти заголовки при прогнозе:\n";
-                allNews.forEach((n, i) => {
-                    newsContext += `${i+1}. ${n.title}\n`;
-                });
+                allNews.forEach((n, i) => newsContext += `${i+1}. ${n.title}\n`);
             } else {
-                newsContext += "Свежих новостей не найдено, анализируй только теханализ.\n";
+                newsContext += "Нет свежих новостей.\n";
             }
 
-            const prompt = `Ты профессиональный трейдер фьючерсом Si (USDRUB).
-ТЕХНИЧЕСКИЕ ДАННЫЕ:
-- Цена: ${tech.price.toFixed(2)}
-- RSI: ${tech.rsi.toFixed(1)}
-- MACD: ${tech.macd.toFixed(2)}
-- ATR: ${tech.atr.toFixed(2)}
-- Тренд: ${tech.trend}
+            const prompt = `Ты профи-трейдер Si.
+Цена: ${tech.price.toFixed(2)}
+RSI: ${tech.rsi.toFixed(1)}
+MACD: ${tech.macd.toFixed(2)}
+ATR: ${tech.atr.toFixed(2)}
 
  ${newsContext}
 
-ЗАДАЧА:
-1. Проанализируй техническую картину.
-2. Внимательно изучи новости. Если новости (ЦБ, нефть, санкции) противоречат тренду, снизь уверенность.
-3. Выдай торговый сигнал: ПОКУПКА, ПРОДАЖА или ДЕРЖАТЬ.
-4. Рассчитай план (на основе ATR):
-   - BUY: TP = Цена + 1.5*ATR, SL = Цена - 1.0*ATR.
-   - SELL: TP = Цена - 1.5*ATR, SL = Цена + 1.0*ATR.
-
-Ответь ТОЛЬКО JSON:
-{ "signal": "...", "confidence": 80, "entry": 0, "tp": 0, "sl": 0, "reason": "Обоснование с учетом новостей" }`;
+Дай сигнал: ПОКУПКА/ПРОДАЖА/ДЕРЖАТЬ.
+План (ATR):
+BUY: TP=Price+1.5*ATR, SL=Price-1*ATR.
+SELL: TP=Price-1.5*ATR, SL=Price+1*ATR.
+JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..." }`;
 
             try {
                 const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -458,8 +469,7 @@
 
             setInterval(fetchQuotes, 2000); 
             setInterval(() => fetchCandles(currentTf), 900000);
-            // Обновляем новости каждые 10 минут
-            setInterval(fetchNews, 600000);
+            setInterval(fetchNews, 600000); // Обновляем новости раз в 10 мин
 
             document.getElementById('tfSelector').onclick = (e) => {
                 const btn = e.target.closest('.tf-btn');
