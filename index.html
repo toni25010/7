@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Si AI Terminal | Live Realtime</title>
+    <title>Si AI Terminal | News Fixed</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #8957e5; --buy: #238636; --sell: #f85149; --hold: #d29922; }
@@ -54,7 +54,7 @@
     </style>
 </head>
 <body>
-    <h2>Si AI Terminal | Realtime Chart</h2>
+    <h2>Si AI Terminal | Live + News AI</h2>
 
     <div class="grid">
         <!-- LEFT -->
@@ -73,7 +73,7 @@
             </div>
 
             <div class="news-box" id="newsBox">
-                <div style="font-weight: 600; color: var(--accent); margin-bottom: 8px;">Новости</div>
+                <div style="font-weight: 600; color: var(--accent); margin-bottom: 8px;">Новости (Финам/РБК/ЦБ)</div>
                 <div id="newsList">Загрузка...</div>
             </div>
         </div>
@@ -132,8 +132,8 @@
         let candleSeries = null;
         let priceLines = [];
         let historyData = [];
-        let allNews = [];
-        let currentTf = 15; // Timeframe in minutes
+        let allNews = []; // Глобальный массив новостей
+        let currentTf = 15;
 
         // ==================== 1. SMART TICKER ====================
         const antiCache = () => `_=${Date.now()}`;
@@ -172,7 +172,7 @@
             }
         }
 
-        // ==================== 2. DATA (UNTOUCHED CORE) ==================
+        // ==================== 2. DATA (UNTOUCHED) ==================
         async function fetchQuotes() {
             if(!currentTicker) return;
             const url = `${MOEX_BASE}/securities/${currentTicker}.json?iss.only=marketdata&${antiCache()}`;
@@ -193,10 +193,7 @@
                 };
                 
                 updatePriceUI(quote);
-                
-                // === NEW: REALTIME CHART UPDATE ===
                 if(quote.price) updateChartLive(quote.price);
-                // ==================================
 
             } catch(e) { console.error("Quote error", e); }
         }
@@ -232,66 +229,82 @@
             loading.style.display = 'none';
         }
 
-        async function fetchNews() {
-            const list = document.getElementById('newsList');
-            const query = encodeURIComponent('ЦБ РФ OR Brent OR Курс доллара');
-            const rss = `https://news.google.com/rss/search?q=${query}&hl=ru&gl=RU&ceid=RU:ru`;
-            const api = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rss)}&count=8`;
-
-            try {
-                const res = await fetch(api);
-                const data = await res.json();
-                if(data.status !== 'ok') throw new Error();
-                
-                const now = new Date();
-                allNews = data.items.filter(n => ((now - new Date(n.pubDate))/3600000) < 48).slice(0, 5);
-                if(allNews.length === 0) allNews = data.items.slice(0, 3);
-
-                list.innerHTML = allNews.map(n => {
-                    const hrs = Math.round((now - new Date(n.pubDate))/3600000);
-                    return `<div class="news-item"><span class="news-time">${hrs}ч назад</span><a href="${n.link}" target="_blank" style="color:var(--text);text-decoration:none;">${n.title}</a></div>`;
-                }).join('');
-            } catch(e) {
-                list.innerHTML = "<div style='color:var(--sell)'>Ошибка новостей</div>";
-            }
-        }
-
         // ==================== 3. REALTIME CHART LOGIC ==================
         function updateChartLive(price) {
             if (!candleSeries || !historyData.length) return;
 
             const now = Math.floor(Date.now() / 1000);
-            // Вычисляем время начала текущей свечи (Timeframe Alignment)
             const tfSeconds = currentTf * 60;
             const currentCandleTime = Math.floor(now / tfSeconds) * tfSeconds;
 
-            // Берем последнюю свечу из истории
             let lastCandle = historyData[historyData.length - 1];
 
-            // Если время совпадает (мы внутри той же свечи) - обновляем
             if (lastCandle.time === currentCandleTime) {
                 lastCandle.close = price;
                 if (price > lastCandle.high) lastCandle.high = price;
                 if (price < lastCandle.low) lastCandle.low = price;
             } else {
-                // Если время новое (началась новая свеча) - создаем
                 const newCandle = {
                     time: currentCandleTime,
-                    open: lastCandle.close, // Открытие = закрытие предыдущей
+                    open: lastCandle.close,
                     high: price,
                     low: price,
                     close: price
                 };
                 historyData.push(newCandle);
-                // Удаляем старую, если слишком много
                 if (historyData.length > 500) historyData.shift();
             }
 
-            // Обновляем серию данных (рефреш только последней точки)
             candleSeries.update(historyData[historyData.length - 1]);
         }
 
-        // ==================== 4. CHART RENDER ==================
+        // ==================== 4. NEWS MODULE (FIXED) ==================
+        async function fetchNews() {
+            const list = document.getElementById('newsList');
+            
+            // Формируем поисковый запрос для Google News (ЦБ РФ ИЛИ Курс ИЛИ Нефть ИЛИ Санкции)
+            const query = encodeURIComponent('ЦБ РФ OR Курс доллара OR Нефть Brent OR Санкции экономика');
+            const rssUrl = `https://news.google.com/rss/search?q=${query}&hl=ru&gl=RU&ceid=RU:ru`;
+            
+            // Используем rss2json как надежный парсер
+            const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}&count=15&api_key=your_api_key_here`;
+
+            try {
+                const res = await fetch(apiUrl);
+                const data = await res.json();
+                
+                if (data.status === 'ok' && data.items) {
+                    // Фильтруем по свежести (последние 48 часов)
+                    const now = new Date();
+                    allNews = data.items.filter(n => {
+                        const pubDate = new Date(n.pubDate);
+                        const hoursDiff = (now - pubDate) / 3600000;
+                        return hoursDiff < 48;
+                    }).slice(0, 8); // Берем топ-8
+
+                    if (allNews.length === 0) allNews = data.items.slice(0, 5); // Фолбэк если нет свежих
+
+                    list.innerHTML = allNews.map(n => {
+                        const pDate = new Date(n.pubDate);
+                        const timeStr = pDate.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+                        const dateStr = pDate.toLocaleDateString('ru-RU');
+                        return `
+                            <div class="news-item">
+                                <span class="news-time">${dateStr} ${timeStr}</span>
+                                <a href="${n.link}" target="_blank" style="color:var(--text);text-decoration:none;">${n.title}</a>
+                            </div>
+                        `;
+                    }).join('');
+                } else {
+                    throw new Error("RSS parse error");
+                }
+            } catch(e) {
+                list.innerHTML = "<div style='color:var(--sell)'>Не удалось загрузить новости (попробуйте обновить)</div>";
+                allNews = []; // Очищаем список при ошибке
+            }
+        }
+
+        // ==================== 5. CHART RENDER ==================
         function renderChart(data) {
             const cont = document.getElementById('chart');
             cont.innerHTML = '';
@@ -318,7 +331,7 @@
             priceLines.push(mkLine(sl, '#f85149', 'SL'));
         }
 
-        // ==================== 5. UI ==================
+        // ==================== 6. UI ==================
         function updatePriceUI(q) {
             if(!q || !q.price) return;
             document.getElementById('currentPrice').innerText = q.price.toFixed(2);
@@ -330,7 +343,7 @@
             if(q.time) document.getElementById('lastTradeTime').innerText = "Сделка: " + new Date(q.time).toLocaleTimeString('ru-RU');
         }
 
-        // ==================== 6. ANALYSIS ==================
+        // ==================== 7. ANALYSIS (AI FIXED) ==================
         function calcTech() {
             if (historyData.length < 20) return null;
             
@@ -365,22 +378,37 @@
             document.getElementById('tradePlanBox').style.display = 'none';
             document.getElementById('ai_desc').style.display = 'none';
 
-            let newsStr = "НОВОСТИ:\n";
-            if(allNews.length > 0) allNews.forEach((n,i)=>newsStr+=`${i+1}. ${n.title}\n`);
+            // === FORM NEWS CONTEXT FOR AI ===
+            let newsContext = "НОВОСТНОЙ ФОН (последние 24 часа):\n";
+            if (allNews.length > 0) {
+                newsContext += "Важно! Учитывай эти заголовки при прогнозе:\n";
+                allNews.forEach((n, i) => {
+                    newsContext += `${i+1}. ${n.title}\n`;
+                });
+            } else {
+                newsContext += "Свежих новостей не найдено, анализируй только теханализ.\n";
+            }
 
-            const prompt = `Ты трейдер Si.
-Цена: ${tech.price.toFixed(2)}
-RSI: ${tech.rsi.toFixed(1)}
-MACD: ${tech.macd.toFixed(2)}
-ATR: ${tech.atr.toFixed(2)}
+            const prompt = `Ты профессиональный трейдер фьючерсом Si (USDRUB).
+ТЕХНИЧЕСКИЕ ДАННЫЕ:
+- Цена: ${tech.price.toFixed(2)}
+- RSI: ${tech.rsi.toFixed(1)}
+- MACD: ${tech.macd.toFixed(2)}
+- ATR: ${tech.atr.toFixed(2)}
+- Тренд: ${tech.trend}
 
- ${newsStr}
+ ${newsContext}
 
-Сигнал: ПОКУПКА/ПРОДАЖА/ДЕРЖАТЬ.
-План (ATR):
-BUY: TP=Price+1.5*ATR, SL=Price-1*ATR.
-SELL: TP=Price-1.5*ATR, SL=Price+1*ATR.
-JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..." }`;
+ЗАДАЧА:
+1. Проанализируй техническую картину.
+2. Внимательно изучи новости. Если новости (ЦБ, нефть, санкции) противоречат тренду, снизь уверенность.
+3. Выдай торговый сигнал: ПОКУПКА, ПРОДАЖА или ДЕРЖАТЬ.
+4. Рассчитай план (на основе ATR):
+   - BUY: TP = Цена + 1.5*ATR, SL = Цена - 1.0*ATR.
+   - SELL: TP = Цена - 1.5*ATR, SL = Цена + 1.0*ATR.
+
+Ответь ТОЛЬКО JSON:
+{ "signal": "...", "confidence": 80, "entry": 0, "tp": 0, "sl": 0, "reason": "Обоснование с учетом новостей" }`;
 
             try {
                 const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -428,12 +456,10 @@ JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..
             await detectActiveContract();
             await Promise.all([fetchQuotes(), fetchCandles(15), fetchNews()]);
 
-            // Quotes every 2 seconds for live chart feeling
             setInterval(fetchQuotes, 2000); 
-            // Candles every 15 min (background history check)
             setInterval(() => fetchCandles(currentTf), 900000);
-            // News every 30 min
-            setInterval(fetchNews, 1800000);
+            // Обновляем новости каждые 10 минут
+            setInterval(fetchNews, 600000);
 
             document.getElementById('tfSelector').onclick = (e) => {
                 const btn = e.target.closest('.tf-btn');
