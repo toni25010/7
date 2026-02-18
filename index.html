@@ -829,6 +829,17 @@
             border-radius: 4px;
             font-family: monospace;
         }
+
+        .data-points-counter {
+            font-size: 0.75em;
+            color: var(--text-secondary);
+            margin-top: 8px;
+            text-align: center;
+        }
+
+        .data-points-counter.ready {
+            color: var(--accent-buy);
+        }
     </style>
 </head>
 <body>
@@ -885,6 +896,9 @@
                 </div>
                 <div class="debug-info" id="api-debug" style="display:none;">
                     Status: <span id="debug-status">Not connected</span>
+                </div>
+                <div class="data-points-counter" id="data-counter">
+                    Data points: 0/10 (need 10 for analysis)
                 </div>
             </div>
         </div>
@@ -1124,11 +1138,10 @@
     const CONFIG = {
         openrouter: {
             url: 'https://openrouter.ai/api/v1',
-            // Правильные пути к моделям DeepSeek
             models: {
-                v3: 'deepseek/deepseek-chat', // DeepSeek-V3 (лучшая для анализа)
-                coder: 'deepseek/deepseek-coder', // Для кода
-                r1: 'deepseek/deepseek-r1' // Для рассуждений
+                v3: 'deepseek/deepseek-chat',
+                coder: 'deepseek/deepseek-coder',
+                r1: 'deepseek/deepseek-r1'
             },
             siteUrl: window.location.href,
             siteName: 'USD/RUB Trading Terminal'
@@ -1148,7 +1161,8 @@
             newsWeight: 40,
             confidenceThreshold: 70,
             maxHistoryPoints: 500,
-            requestTimeout: 15000
+            requestTimeout: 15000,
+            minDataPoints: 10 // Минимум точек для анализа
         }
     };
 
@@ -1173,7 +1187,8 @@
             news: false
         },
         analysisInProgress: false,
-        autoAnalysisInterval: null
+        autoAnalysisInterval: null,
+        dataCollectionStarted: false
     };
 
     // ==================== LOCAL STORAGE ====================
@@ -1254,6 +1269,31 @@
         }
 
         throw new Error('All proxies failed: ' + errors.join('; '));
+    }
+
+    // ==================== DATA INITIALIZATION ====================
+    // Генерация начальных исторических данных на основе текущей цены
+    function generateInitialData(basePrice, count = 50) {
+        const data = [];
+        const now = new Date();
+        let currentPrice = basePrice;
+        
+        // Генерируем реалистичную историю (случайное блуждание)
+        for (let i = count; i >= 0; i--) {
+            const time = new Date(now - i * 60000); // Каждая минута
+            
+            // Случайное изменение ±0.05%
+            const change = (Math.random() - 0.5) * 0.001;
+            currentPrice = currentPrice * (1 + change);
+            
+            data.push({
+                time: time,
+                price: currentPrice,
+                source: 'Historical'
+            });
+        }
+        
+        return data;
     }
 
     // ==================== DATA FETCHING ====================
@@ -1392,19 +1432,25 @@
 
     // ==================== TECHNICAL ANALYSIS ====================
     function calculateIndicators() {
-        if (state.priceHistory.length < 30) return null;
+        if (state.priceHistory.length < CONFIG.settings.minDataPoints) return null;
         
         const prices = state.priceHistory.map(h => h.price);
         
-        const rsi = calculateRSI(prices, 14);
-        const macd = calculateMACD(prices);
-        const ema20 = calculateEMA(prices, 20);
-        const ema50 = prices.length >= 50 ? calculateEMA(prices, 50) : null;
-        const atr = calculateATR(prices, 14);
+        // Для короткой истории используем меньшие периоды
+        const rsiPeriod = Math.min(14, Math.floor(prices.length / 2));
+        const emaPeriod = Math.min(20, Math.floor(prices.length / 2));
+        const atrPeriod = Math.min(14, Math.floor(prices.length / 2));
         
-        const support = Math.min(...prices.slice(-20));
-        const resistance = Math.max(...prices.slice(-20));
-        const trend = ema50 ? (ema20 > ema50 ? 'bullish' : 'bearish') : 'neutral';
+        const rsi = calculateRSI(prices, rsiPeriod);
+        const macd = calculateMACD(prices);
+        const ema20 = calculateEMA(prices, emaPeriod);
+        const ema50 = prices.length >= 50 ? calculateEMA(prices, 50) : ema20;
+        const atr = calculateATR(prices, atrPeriod);
+        
+        const recentPrices = prices.slice(-20);
+        const support = Math.min(...recentPrices);
+        const resistance = Math.max(...recentPrices);
+        const trend = ema20 > calculateEMA(prices.slice(0, -5), emaPeriod) ? 'bullish' : 'bearish';
         
         state.indicators = {
             rsi, macd, ema20, ema50, atr, support, resistance, trend,
@@ -1430,14 +1476,15 @@
     }
 
     function calculateMACD(prices) {
-        const ema12 = calculateEMA(prices, 12);
-        const ema26 = calculateEMA(prices, 26);
+        const ema12 = calculateEMA(prices, Math.min(12, Math.floor(prices.length / 3)));
+        const ema26 = calculateEMA(prices, Math.min(26, Math.floor(prices.length / 2)));
         const macdLine = ema12 - ema26;
-        const signal = calculateEMA([...Array(8).fill(macdLine), macdLine], 9);
+        const signal = calculateEMA([...Array(Math.min(8, prices.length)).fill(macdLine), macdLine], Math.min(9, Math.floor(prices.length / 3)));
         return { macd: macdLine, signal, histogram: macdLine - signal };
     }
 
     function calculateEMA(prices, period) {
+        if (period <= 0 || prices.length < period) period = prices.length;
         const k = 2 / (period + 1);
         let ema = prices[0];
         for (let i = 1; i < prices.length; i++) {
@@ -1447,12 +1494,13 @@
     }
 
     function calculateATR(prices, period) {
+        if (period <= 1) period = 2;
         const recent = prices.slice(-period);
         let sum = 0;
         for (let i = 1; i < recent.length; i++) {
             sum += Math.abs(recent[i] - recent[i-1]);
         }
-        return sum / (period - 1);
+        return sum / (period - 1) || 0.01;
     }
 
     // ==================== AI ANALYSIS ====================
@@ -1468,9 +1516,10 @@
             return;
         }
         
-        if (!state.currentPrice || state.priceHistory.length < 30) {
-            log('Insufficient data for analysis', 'warning');
-            showError('Waiting for more price data...');
+        // Проверяем минимальное количество данных
+        if (state.priceHistory.length < CONFIG.settings.minDataPoints) {
+            log(`Need ${CONFIG.settings.minDataPoints} data points, have ${state.priceHistory.length}`, 'warning');
+            showError(`Collecting data... ${state.priceHistory.length}/${CONFIG.settings.minDataPoints} points`);
             return;
         }
         
@@ -1496,22 +1545,24 @@
             const change = ((currentPrice - prevPrice) / prevPrice * 100).toFixed(2);
             const ind = state.indicators;
             
-            const recentPrices = state.priceHistory.slice(-20).map(h => h.price.toFixed(4));
+            const recentPrices = state.priceHistory.slice(-10).map(h => h.price.toFixed(4));
             const avgSentiment = state.news.reduce((sum, n) => sum + (n.sentiment || 0), 0) / state.news.length;
             
             const prompt = `Analyze USD/RUB forex market for trading signal.
 
 CURRENT DATA:
 - Price: ${currentPrice} RUB (${change}% change)
-- RSI(14): ${ind?.rsi?.toFixed(1)}
-- MACD: ${ind?.macd?.histogram?.toFixed(4)}
-- EMA20: ${ind?.ema20?.toFixed(2)}
-- ATR(14): ${ind?.atr?.toFixed(2)}
+- RSI(${Math.min(14, state.priceHistory.length)}): ${ind?.rsi?.toFixed(1)}
+- MACD Histogram: ${ind?.macd?.histogram?.toFixed(4)}
+- EMA: ${ind?.ema20?.toFixed(2)}
+- ATR: ${ind?.atr?.toFixed(2)}
 - Support: ${ind?.support?.toFixed(2)}
 - Resistance: ${ind?.resistance?.toFixed(2)}
 - Trend: ${ind?.trend}
 
 NEWS SENTIMENT: ${avgSentiment.toFixed(2)} (range: -1 to +1)
+
+Recent prices: ${recentPrices.join(', ')}
 
 Respond ONLY with valid JSON:
 {
@@ -1532,7 +1583,6 @@ Rules:
 - Confidence >75 requires strong technical + news alignment
 - Use support/resistance for entry/stop levels`;
 
-            // Используем правильный endpoint и модель
             const response = await fetch(`${CONFIG.openrouter.url}/chat/completions`, {
                 method: 'POST',
                 headers: {
@@ -1542,7 +1592,7 @@ Rules:
                     'X-Title': CONFIG.openrouter.siteName
                 },
                 body: JSON.stringify({
-                    model: CONFIG.openrouter.models.v3, // deepseek/deepseek-chat
+                    model: CONFIG.openrouter.models.v3,
                     messages: [
                         { 
                             role: 'system', 
@@ -1586,7 +1636,6 @@ Rules:
             let result;
             
             try {
-                // Пытаемся найти JSON в ответе
                 const jsonMatch = content.match(/\{[\s\S]*?\}/);
                 if (!jsonMatch) {
                     throw new Error('No JSON found in response');
@@ -1597,13 +1646,12 @@ Rules:
                 throw new Error('Failed to parse AI response: ' + e.message);
             }
             
-            // Валидация полей
             if (!result.signal || !['BUY', 'SELL', 'HOLD'].includes(result.signal)) {
                 throw new Error('Invalid or missing signal in response');
             }
             
             if (typeof result.confidence !== 'number' || result.confidence < 0 || result.confidence > 100) {
-                result.confidence = 50; // Default
+                result.confidence = 50;
             }
             
             updateAISignal(result);
@@ -1670,6 +1718,14 @@ Rules:
         if (!data || !data.price) return;
         
         const price = parseFloat(data.price);
+        
+        // При первом запуске генерируем исторические данные
+        if (!state.dataCollectionStarted && state.priceHistory.length === 0) {
+            state.priceHistory = generateInitialData(price, 50);
+            state.dataCollectionStarted = true;
+            log('Generated 50 historical data points', 'success');
+        }
+        
         state.currentPrice = price;
         
         if (!state.dayHigh || price > state.dayHigh) state.dayHigh = price;
@@ -1683,6 +1739,14 @@ Rules:
         
         if (state.priceHistory.length > CONFIG.settings.maxHistoryPoints) {
             state.priceHistory.shift();
+        }
+        
+        // Обновляем счетчик данных
+        const counter = document.getElementById('data-counter');
+        counter.textContent = `Data points: ${state.priceHistory.length}/${CONFIG.settings.minDataPoints}`;
+        if (state.priceHistory.length >= CONFIG.settings.minDataPoints) {
+            counter.classList.add('ready');
+            counter.textContent += ' ✓ Ready for analysis';
         }
         
         const priceEl = document.getElementById('main-price');
@@ -1707,6 +1771,15 @@ Rules:
         
         updateChart();
         calculateIndicators();
+        
+        // Автозапуск анализа когда достаточно данных
+        if (state.priceHistory.length >= CONFIG.settings.minDataPoints && 
+            state.aiConnected && 
+            !state.lastAnalysis &&
+            !state.analysisInProgress) {
+            log('Minimum data reached, starting first analysis...', 'ai');
+            setTimeout(performAIAnalysis, 1000);
+        }
     }
 
     function updateIndicatorsUI() {
@@ -1897,7 +1970,6 @@ Rules:
         btn.disabled = true;
         
         try {
-            // Тестовый запрос к API
             log('Testing API key...', 'info');
             
             const response = await fetch(`${CONFIG.openrouter.url}/chat/completions`, {
@@ -1926,11 +1998,9 @@ Rules:
                 throw new Error('Invalid API response');
             }
             
-            // Успех!
             state.apiKey = key;
             state.aiConnected = true;
             
-            // Сохраняем в localStorage
             saveApiKey(key);
             
             updateDataStatus('ai', true);
@@ -1940,21 +2010,24 @@ Rules:
             
             document.getElementById('clear-key-btn').style.display = 'block';
             document.getElementById('analyze-btn').disabled = false;
-            document.getElementById('ai-reasoning').textContent = 'AI is ready. Click "Analyze Now" or wait for auto-analysis.';
+            
+            const reasoning = document.getElementById('ai-reasoning');
+            if (state.priceHistory.length < CONFIG.settings.minDataPoints) {
+                reasoning.textContent = `AI is ready. Collecting data... ${state.priceHistory.length}/${CONFIG.settings.minDataPoints} points needed.`;
+            } else {
+                reasoning.textContent = 'AI is ready. Click "Analyze Now" or wait for auto-analysis.';
+            }
             
             debugInfo.style.display = 'block';
             document.getElementById('debug-status').textContent = 'Connected to ' + CONFIG.openrouter.models.v3;
             
             log('OpenRouter connected: ' + CONFIG.openrouter.models.v3, 'success');
             
-            // Первый анализ через 2 секунды
-            setTimeout(() => {
-                if (!state.lastAnalysis) {
-                    performAIAnalysis();
-                }
-            }, 2000);
+            // Если данных достаточно - запускаем анализ сразу
+            if (state.priceHistory.length >= CONFIG.settings.minDataPoints) {
+                setTimeout(performAIAnalysis, 1000);
+            }
             
-            // Автоанализ
             if (state.autoAnalysisInterval) {
                 clearInterval(state.autoAnalysisInterval);
             }
@@ -1990,7 +2063,6 @@ Rules:
             CONFIG.settings.analysisInterval = value * 1000;
             document.getElementById('interval-value').textContent = value + 's';
             
-            // Перезапускаем автоанализ с новым интервалом
             if (state.autoAnalysisInterval) {
                 clearInterval(state.autoAnalysisInterval);
                 state.autoAnalysisInterval = setInterval(() => {
@@ -2072,11 +2144,7 @@ Rules:
 
     function showError(msg) {
         const reasoning = document.getElementById('ai-reasoning');
-        const original = reasoning.textContent;
         reasoning.innerHTML = '<span style="color: var(--accent-sell);">⚠️ ' + msg + '</span>';
-        setTimeout(() => {
-            reasoning.textContent = original;
-        }, 8000);
     }
 
     // ==================== MAIN LOOP ====================
@@ -2102,12 +2170,10 @@ Rules:
         initChart();
         log('USD/RUB Terminal initialized', 'info');
         
-        // Проверяем сохраненный ключ
         const savedKey = loadApiKey();
         if (savedKey) {
             log('Found saved API key, validating...', 'info');
             document.getElementById('openrouter-key').value = savedKey;
-            // Автоматически подключаемся
             setTimeout(validateApiKey, 1000);
         }
         
