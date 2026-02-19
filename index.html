@@ -266,48 +266,59 @@
         ];
 
         // Пакетная классификация через OpenRouter
-        async function classifyNewsBatch(newsItems) {
-            const key = document.getElementById('api_key_input').value.trim();
-            if (!key || newsItems.length === 0) {
-                // fallback: все нейтральные
-                return newsItems.map(() => 'neutral');
-            }
+async function classifyNewsBatch(newsItems) {
+    const key = document.getElementById('api_key_input').value.trim();
+    if (!key || newsItems.length === 0) {
+        showAIFallbackWarning(true); // показать предупреждение
+        return newsItems.map(() => 'neutral');
+    }
 
-            let prompt = "Ты профессиональный трейдер, анализируешь новости на предмет влияния на курс рубля (фьючерс Si). Для каждой новости определи: 'bullish' (рубль слабеет → Si растёт), 'bearish' (рубль укрепляется → Si падает), 'neutral' (не влияет или неопределённо).\n\nСписок новостей:\n";
-            newsItems.forEach((item, idx) => {
-                prompt += `${idx + 1}. Заголовок: ${item.title || ''}\n   Текст: ${item.text || ''}\n`;
-            });
-            prompt += "\nОтветь строго в формате JSON: {\"sentiments\": [\"bullish\", \"neutral\", ...]}";
+    // Более строгий промпт, поощряющий выбор bullish/bearish при малейших признаках
+    let prompt = `Ты аналитик, специализирующийся на влиянии новостей на курс рубля (фьючерс Si). 
+Каждую новость классифицируй как:
+- "bullish" — рубль слабеет (растёт доллар), если новость негативна для РФ (санкции, война, падение нефти, геополитика, кризис)
+- "bearish" — рубль укрепляется (падает доллар), если новость позитивна для РФ (рост нефти, переговоры, успехи экономики)
+- "neutral" — только если новость вообще не связана с Россией, экономикой, сырьём или валютой.
 
-            try {
-                const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-                    method: "POST",
-                    headers: {
-                        "Authorization": `Bearer ${key}`,
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        model: "deepseek/deepseek-v3.2",
-                        messages: [{ role: "user", content: prompt }],
-                        temperature: 0.1
-                    })
-                });
-                const data = await response.json();
-                if (data.error) throw new Error(data.error.message);
-                const content = data.choices[0].message.content;
-                const jsonMatch = content.match(/\{[\s\S]*\}/);
-                if (!jsonMatch) throw new Error("No JSON in response");
-                const result = JSON.parse(jsonMatch[0]);
-                if (result.sentiments && Array.isArray(result.sentiments) && result.sentiments.length === newsItems.length) {
-                    return result.sentiments;
-                } else {
-                    throw new Error("Invalid sentiments array");
-                }
-            } catch (e) {
-                console.error("AI classification failed, falling back to neutral", e);
-                return newsItems.map(() => 'neutral');
-            }
+Старайся избегать "neutral", если есть хоть какая-то связь с Россией или мировой экономикой.
+
+Список новостей (заголовок + краткое содержание):\n`;
+    newsItems.forEach((item, idx) => {
+        prompt += `${idx + 1}. Заголовок: ${item.title || ''}\n   Текст: ${item.text || ''}\n`;
+    });
+    prompt += "\nОтветь строго в формате JSON: {\"sentiments\": [\"bullish\", \"neutral\", ...]}";
+
+    try {
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${key}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                model: "deepseek/deepseek-v3.2",
+                messages: [{ role: "user", content: prompt }],
+                temperature: 0.1
+            })
+        });
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message);
+        const content = data.choices[0].message.content;
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error("No JSON in response");
+        const result = JSON.parse(jsonMatch[0]);
+        if (result.sentiments && Array.isArray(result.sentiments) && result.sentiments.length === newsItems.length) {
+            hideAIFallbackWarning(); // убрать предупреждение
+            return result.sentiments;
+        } else {
+            throw new Error("Invalid sentiments array");
         }
+    } catch (e) {
+        console.error("AI classification failed, falling back to neutral", e);
+        showAIFallbackWarning(true); // показать предупреждение
+        return newsItems.map(() => 'neutral');
+    }
+}
 
         async function fetchFromRSS(rssUrl) {
             const news = [];
@@ -356,6 +367,32 @@
                 sentiment: 'neutral'
             }));
         }
+
+        function showAIFallbackWarning(show) {
+    let warning = document.getElementById('aiFallbackWarning');
+    if (!warning) {
+        warning = document.createElement('div');
+        warning.id = 'aiFallbackWarning';
+        warning.style.backgroundColor = '#f85149';
+        warning.style.color = 'white';
+        warning.style.padding = '4px 8px';
+        warning.style.borderRadius = '4px';
+        warning.style.fontSize = '11px';
+        warning.style.marginBottom = '8px';
+        warning.style.display = show ? 'block' : 'none';
+        warning.innerText = '⚠️ AI-классификация не работает (нет ключа или ошибка). Используются нейтральные метки.';
+        const newsHeader = document.querySelector('.news-header');
+        if (newsHeader) {
+            newsHeader.insertAdjacentElement('afterend', warning);
+        }
+    } else {
+        warning.style.display = show ? 'block' : 'none';
+    }
+}
+
+function hideAIFallbackWarning() {
+    showAIFallbackWarning(false);
+}
 
         async function fetchNews() {
             const container = document.getElementById('newsList');
