@@ -227,37 +227,41 @@
             return Math.floor(Date.UTC(year, month-1, day, hour-3, minute, second) / 1000);
         }
 
-        async function fetchCandles() {
-            if(!currentTicker) return;
-            console.log('Fetching candles at', new Date().toLocaleTimeString());
-            const loading = document.getElementById('loading');
-            loading.style.display = 'flex';
-            
-            const d = new Date();
-            d.setDate(d.getDate() - 7);
-            const from = d.toISOString().split('T')[0];
-            
-            const url = `${MOEX_BASE}/securities/${currentTicker}/candles.json?interval=${currentTf}&from=${from}&${antiCache()}`;
-            
-            try {
-                const res = await fetch(url);
-                const data = await res.json();
-                if (!data.candles?.data?.length) throw new Error("Нет свечей");
+async function fetchCandles() {
+    if(!currentTicker) return;
+    console.log('Fetching candles at', new Date().toLocaleTimeString());
+    const loading = document.getElementById('loading');
+    if (loading) loading.style.display = 'flex';
+    
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    const from = d.toISOString().split('T')[0];
+    
+    const url = `${MOEX_BASE}/securities/${currentTicker}/candles.json?interval=${currentTf}&from=${from}&${antiCache()}`;
+    
+    try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!data.candles?.data?.length) throw new Error("Нет свечей");
 
-                const cols = data.candles.columns;
-                const idx = { o: cols.indexOf('open'), c: cols.indexOf('close'), h: cols.indexOf('high'), l: cols.indexOf('low'), t: cols.indexOf('begin') };
+        const cols = data.candles.columns;
+        const idx = { o: cols.indexOf('open'), c: cols.indexOf('close'), h: cols.indexOf('high'), l: cols.indexOf('low'), t: cols.indexOf('begin') };
 
-                historyData = data.candles.data.map(r => ({
-                    time: parseMoexTime(r[idx.t]),
-                    open: r[idx.o], high: r[idx.h], low: r[idx.l], close: r[idx.c]
-                })).filter(c => c.close > 0);
+        historyData = data.candles.data.map(r => ({
+            time: parseMoexTime(r[idx.t]),
+            open: r[idx.o], high: r[idx.h], low: r[idx.l], close: r[idx.c]
+        })).filter(c => c.close > 0);
 
-                renderChart(historyData);
-            } catch(e) {
-                loading.innerHTML = `<span style='color:var(--sell); font-size:12px;'>Ошибка: ${e.message}</span>`;
-            }
-            loading.style.display = 'none';
-        }
+        renderChart(historyData);
+    } catch(e) {
+        console.error('Error fetching candles:', e);
+        const loading = document.getElementById('loading');
+        if (loading) loading.innerHTML = `<span style='color:var(--sell); font-size:12px;'>Ошибка: ${e.message}</span>`;
+    } finally {
+        const loading = document.getElementById('loading');
+        if (loading) loading.style.display = 'none';
+    }
+}
 
         // ==================== 3. НОВОСТИ (НОВЫЙ БЛОК) ==================
         // RSS фиды
@@ -532,21 +536,41 @@
         }
 
         // ==================== 5. ОТРИСОВКА ГРАФИКА ==================
-        function renderChart(data) {
-            const cont = document.getElementById('chart');
-            cont.innerHTML = '';
-            priceLines = [];
+function renderChart(data) {
+    const cont = document.getElementById('chart');
+    // Сохраняем ссылку на loading, если он есть
+    const loading = document.getElementById('loading');
+    // Очищаем контейнер
+    cont.innerHTML = '';
+    // Восстанавливаем loading (скрытым)
+    if (loading) {
+        cont.appendChild(loading);
+        loading.style.display = 'none';
+    } else {
+        // Если loading почему-то отсутствовал, создадим новый
+        const newLoading = document.createElement('div');
+        newLoading.id = 'loading';
+        newLoading.innerHTML = '<div class="spinner"></div> Загрузка...';
+        newLoading.style.display = 'none';
+        cont.appendChild(newLoading);
+    }
+    // Удаляем предыдущий график, если был
+    if (chart) {
+        chart.remove();
+        chart = null;
+    }
+    priceLines = [];
 
-            chart = LightweightCharts.createChart(cont, {
-                layout: { background: { color: '#161b22' }, textColor: '#8b949e' },
-                grid: { vertLines: { color: '#222' }, horzLines: { color: '#222' } },
-                timeScale: { timeVisible: true },
-                width: cont.clientWidth, height: 400
-            });
-            candleSeries = chart.addCandlestickSeries({ upColor: '#238636', downColor: '#f85149', borderVisible: false });
-            candleSeries.setData(data);
-            chart.timeScale().fitContent();
-        }
+    chart = LightweightCharts.createChart(cont, {
+        layout: { background: { color: '#161b22' }, textColor: '#8b949e' },
+        grid: { vertLines: { color: '#222' }, horzLines: { color: '#222' } },
+        timeScale: { timeVisible: true },
+        width: cont.clientWidth, height: 400
+    });
+    candleSeries = chart.addCandlestickSeries({ upColor: '#238636', downColor: '#f85149', borderVisible: false });
+    candleSeries.setData(data);
+    chart.timeScale().fitContent();
+}
 
         function drawPlan(e, tp, sl) {
             if(!candleSeries) return;
