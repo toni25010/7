@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Si AI Terminal | Finam + RBC News</title>
+    <title>Si AI Terminal | Новости России</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #8957e5; --buy: #238636; --sell: #f85149; }
@@ -29,9 +29,23 @@
         .plan-row:last-child { border-bottom: none; }
         .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
         
-        .news-box { margin-top: 12px; max-height: 200px; overflow-y: auto; font-size: 12px; }
-        .news-item { padding: 8px; border-left: 2px solid #3b82f6; margin-bottom: 6px; background: rgba(255,255,255,0.02); }
+        .news-box { margin-top: 12px; max-height: 300px; overflow-y: auto; font-size: 12px; }
+        .news-item { padding: 8px; border-left: 2px solid #3b82f6; margin-bottom: 6px; background: rgba(255,255,255,0.02); position: relative; }
+        .news-item.high { border-left-color: #f85149; }
+        .news-item.medium { border-left-color: #d29922; }
+        .news-item.low { border-left-color: #3b82f6; }
         .news-time { color: #60a5fa; font-size: 10px; font-weight: 600; margin-bottom: 2px; display: block; }
+        .news-text { color: var(--text); }
+        .news-sentiment { display: inline-block; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 600; margin-top: 4px; }
+        .sentiment-bullish { background: rgba(35, 134, 54, 0.2); color: #3fb950; }
+        .sentiment-bearish { background: rgba(248, 81, 73, 0.2); color: #f85149; }
+        .sentiment-neutral { background: rgba(210, 153, 34, 0.2); color: #d29922; }
+        .news-filter { display: flex; gap: 5px; margin-bottom: 8px; flex-wrap: wrap; }
+        .filter-btn { background: #21262d; color: var(--text); border: 1px solid var(--border); padding: 4px 8px; border-radius: 12px; font-size: 10px; cursor: pointer; transition: 0.2s; }
+        .filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+        .filter-btn:hover { opacity: 0.8; }
+        .news-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .news-header span { color: #8b949e; font-size: 11px; }
         
         .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
         .stat-item { background: #0d1117; padding: 8px; border-radius: 6px; font-size: 12px; border: 1px solid var(--border); }
@@ -51,7 +65,7 @@
     </style>
 </head>
 <body>
-    <h2>Si AI Terminal | Finam + RBC News</h2>
+    <h2>Si AI Terminal | Новости России</h2>
 
     <div class="grid">
         <!-- LEFT -->
@@ -63,8 +77,18 @@
                 <span id="lastTradeTime">--</span>
             </div>
 
+            <!-- НОВОСТНОЙ БЛОК (обновлённый) -->
             <div class="news-box" id="newsBox">
-                <div style="font-weight: 600; color: #3b82f6; margin-bottom: 8px;">Новости Finam и РБК</div>
+                <div class="news-header">
+                    <span style="font-weight: 600; color: #3b82f6;">Новости (Инвестинг, Лента, Ведомости)</span>
+                    <span id="newsCount">0</span>
+                </div>
+                <div class="news-filter">
+                    <button class="filter-btn active" onclick="filterNews('all', event)">Все</button>
+                    <button class="filter-btn" onclick="filterNews('bullish', event)">Бычьи для Si</button>
+                    <button class="filter-btn" onclick="filterNews('bearish', event)">Медвежьи для Si</button>
+                    <button class="filter-btn" onclick="refreshNews()">🔄</button>
+                </div>
                 <div id="newsList">Загрузка...</div>
             </div>
         </div>
@@ -115,7 +139,7 @@
     </div>
 
     <script>
-        // ==================== CONFIG ==================
+        // ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==================
         const MOEX_BASE = "https://iss.moex.com/iss/engines/futures/markets/forts";
         
         let currentTicker = null;
@@ -123,8 +147,14 @@
         let candleSeries = null;
         let priceLines = [];
         let historyData = [];
-        let allNews = []; 
-        const currentTf = 60; // только 1H
+        let allNews = [];            // все загруженные новости (для AI и фильтрации)
+        let currentNewsFilter = 'all'; // текущий фильтр
+        const currentTf = 60;         // только 1H
+
+        // Состояние новостного анализа (для возможного использования)
+        let analysisState = {
+            news: { score: 0, direction: 'neutral', items: [] }
+        };
 
         // ==================== 1. SMART TICKER ====================
         const antiCache = () => `_=${Date.now()}`;
@@ -163,7 +193,7 @@
             }
         }
 
-        // ==================== 2. DATA ==================
+        // ==================== 2. ДАННЫЕ MOEX ==================
         async function fetchQuotes() {
             if(!currentTicker) return;
             const url = `${MOEX_BASE}/securities/${currentTicker}.json?iss.only=marketdata&${antiCache()}`;
@@ -229,109 +259,254 @@
             loading.style.display = 'none';
         }
 
-async function fetchNews() {
-    const list = document.getElementById('newsList');
-    list.innerHTML = '<div style="color:#8b949e">Загрузка Finam и РБК...</div>';
-    
-    // Источники новостей
-    const sources = [
-        { name: 'Finam', url: 'https://www.finam.ru/analysis/conews/rsspoint' },
-        { name: 'РБК', url: 'https://rssexport.rbc.ru/rbcnews/news/20/full.rss' },
-        { name: 'РБК (alt)', url: 'https://static.feed.rbc.ru/rbc/logical/footer/news.rss' },
-        { name: 'РБК (yandex)', url: 'https://www.rbc.ru/v8/rss/yandex/outside/news.rss' }
-    ];
-
-    // Обработчики прокси для каждого ресурса
-    const handlers = [
-        { name: 'nativeFetch', fn: async (src) => {
-            const response = await fetch(src.url);
-            const text = await response.text();
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(text, 'application/xml');
-            const items = xmlDoc.querySelectorAll('item');
-            return Array.from(items).map((item) => ({
-                title: item.querySelector('title').textContent,
-                link: item.querySelector('link').textContent,
-                pubDate: item.querySelector('pubDate').textContent
-            }));
-        }}
-    ];
-
-    allNews = [];
-    let newsHtml = '';
-    const now = new Date();
-
-    for (const src of sources) {
-        let items = [];
-        let usedHandler = null;
-
-        for (const handler of handlers) {
-            try {
-                console.log(`Trying ${handler.name} for ${src.name}...`);
-                items = await handler.fn(src);
-                if (items.length > 0) {
-                    usedHandler = handler.name;
-                    break;
-                }
-            } catch (e) {
-                console.warn(`${handler.name} failed for ${src.name}:`, e.message || e);
-            }
-        }
-
-        if (!usedHandler) {
-            console.error(`All handlers failed for ${src.name}`);
-            continue;
-        }
-
-        console.log(`Success with ${usedHandler} for ${src.name}, got ${items.length} items`);
-
-        items.slice(0, 5).forEach(item => {
-            const title = item.title;
-            const link = item.link;
-            let date = new Date();
-            if (item.pubDate) {
-                date = new Date(item.pubDate);
-                if (isNaN(date)) date = new Date();
-            }
-            const hoursAgo = (now - date) / 3600000;
-
-            if (hoursAgo < 24) allNews.push({ title, link, source: src.name });
-
-            const timeStr = hoursAgo < 1 ? 'Только что' : hoursAgo < 24 ? `${Math.round(hoursAgo)}ч назад` : date.toLocaleDateString('ru-RU');
-
-            newsHtml += `
-                <div class="news-item">
-                    <span class="news-time">${src.name} • ${timeStr}</span>
-                    <a href="${link}" target="_blank" style="color:var(--text);text-decoration:none;">${title}</a>
-                </div>
-            `;
-        });
-        
-        if (allNews.length >= 15) break;
-    }
-
-    if (newsHtml) {
-        list.innerHTML = newsHtml;
-    } else {
-        list.innerHTML = '<div style="color:#d29922; font-size:11px; padding:5px;">Не удалось загрузить новости. Демо-лента:</div>';
-        allNews = [
-            { title: "Рынок ожидает решения ЦБ по ставке" },
-            { title: "Нефть дорожает на фоне геополитики" },
-            { title: "Рубль стабилен к основным валютам" }
+        // ==================== 3. НОВОСТИ (НОВЫЙ БЛОК) ==================
+        // RSS фиды
+        const RSS_FEEDS = [
+            'https://ru.investing.com/rss/news_25.rss',
+            'https://lenta.ru/rss/news',
+            'https://www.vedomosti.ru/rss/articles'
         ];
-        allNews.forEach(item => {
-            newsHtml += `
-                <div class="news-item">
-                    <span class="news-time">Демо • только что</span>
-                    <span style="color:var(--text);">${item.title}</span>
-                </div>
-            `;
-        });
-        list.innerHTML += newsHtml;
-    }
-}
 
-        // ==================== 4. REALTIME CHART ==================
+        // Ключевые слова для анализа настроений (для Si - рубль/доллар)
+        const KEYWORDS = {
+            // Бычьи для Si (рубль слабеет = цена растёт)
+            bullish: [
+                'санкции', 'инфляция', 'ставка', 'ключевая ставка', 'повышение ставки',
+                'нефть', 'нефть падает', 'brent', 'кризис', 'война', 'украина',
+                'дефицит', 'рецессия', 'доллар растет', 'доллар укрепляется', 'usd',
+                'монетарная политика', 'фрс', 'federal reserve', 'tapering',
+                'отток', 'капитала', 'девальвация', 'обвал', 'падение рубля'
+            ],
+            // Медвежьи для Si (рубль укрепляется = цена падает)
+            bearish: [
+                'нефть растет', 'нефть дорожает', 'brent растет', ' бюджет',
+                'профицит', 'экспорт', 'продажа валюты', 'валюта', 'ЦБ',
+                'центральный банк', 'снижение ставки', 'понижение ставки',
+                'налоговый', 'налоги', 'период', 'минфин',
+                'приток', 'резервы', 'зв', 'мвф', 'экономика растет',
+                'рубль укрепляется', 'рубль растет', 'ruble'
+            ]
+        };
+
+        // Определение важности новости
+        function getNewsImpact(title, description) {
+            const text = (title + ' ' + (description || '')).toLowerCase();
+            const highImpact = ['санкции', 'ключевая ставка', 'цб рф', 'фрс', 'federal reserve', 'нефть', 'brent', 'инфляция'];
+            const mediumImpact = ['рубль', 'доллар', 'экономика', 'биржа', 'ммвб', 'рынок'];
+
+            for (const word of highImpact) {
+                if (text.includes(word)) return 'high';
+            }
+            for (const word of mediumImpact) {
+                if (text.includes(word)) return 'medium';
+            }
+            return 'low';
+        }
+
+        // Определение настроения новости
+        function getNewsSentiment(title, description) {
+            const text = ((title || '') + ' ' + (description || '')).toLowerCase();
+
+            let bullishScore = 0;
+            let bearishScore = 0;
+
+            for (const keyword of KEYWORDS.bullish) {
+                if (text.includes(keyword)) bullishScore += 1;
+            }
+            for (const keyword of KEYWORDS.bearish) {
+                if (text.includes(keyword)) bearishScore += 1;
+            }
+
+            if (bullishScore > bearishScore) return 'bullish';
+            if (bearishScore > bullishScore) return 'bearish';
+            return 'neutral';
+        }
+
+        async function fetchNews() {
+            const container = document.getElementById('newsList');
+            container.innerHTML = '<div style="text-align: center; color: #8b949e; padding: 20px;">⏳ Загрузка новостей...</div>';
+
+            const allFetchedNews = [];
+
+            for (const rssUrl of RSS_FEEDS) {
+                try {
+                    const news = await fetchFromRSS(rssUrl);
+                    allFetchedNews.push(...news);
+                } catch (e) {
+                    console.log(`Failed to fetch ${rssUrl}:`, e);
+                }
+            }
+
+            // Если не удалось загрузить - используем fallback
+            if (allFetchedNews.length === 0) {
+                console.log('Using fallback news');
+                const news = generateFallbackNews();
+                allNews = news;
+                analysisState.news.items = news;
+                renderNews(news);
+                updateNewsInfluence(news);
+                return;
+            }
+
+            // Сортируем по времени (свежие first)
+            allFetchedNews.sort((a, b) => b.time - a.time);
+
+            // Оставляем только последние 48 часов
+            const now = new Date();
+            const filteredNews = allFetchedNews.filter(n => {
+                const hoursDiff = (now - n.time) / (1000 * 60 * 60);
+                return hoursDiff <= 48;
+            });
+
+            allNews = filteredNews;
+            analysisState.news.items = filteredNews;
+            renderNews(filteredNews);
+            updateNewsInfluence(filteredNews);
+        }
+
+        async function fetchFromRSS(rssUrl) {
+            const news = [];
+            const encodedUrl = encodeURIComponent(rssUrl);
+            const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodedUrl}`;
+
+            const response = await fetch(apiUrl);
+            if (!response.ok) throw new Error('Network response was not ok');
+
+            const data = await response.json();
+
+            if (data.status !== 'ok' || !data.items) {
+                throw new Error('Invalid RSS data');
+            }
+
+            for (const item of data.items) {
+                const pubDate = new Date(item.pubDate);
+                const title = item.title || '';
+                const description = item.description || '';
+
+                const impact = getNewsImpact(title, description);
+                const sentiment = getNewsSentiment(title, description);
+
+                news.push({
+                    id: Math.random().toString(36).substr(2, 9),
+                    time: pubDate,
+                    title: title.substring(0, 150),
+                    text: description.replace(/<[^>]*>/g, '').substring(0, 200),
+                    impact: impact,
+                    sentiment: sentiment,
+                    link: item.link
+                });
+            }
+
+            return news;
+        }
+
+        function generateFallbackNews() {
+            const now = new Date();
+            const templates = [
+                { title: 'ЦБ РФ: мониторинг ключевой ставки', sentiment: 'neutral', impact: 'high' },
+                { title: 'Курс доллара на ММВБ', sentiment: 'neutral', impact: 'medium' },
+                { title: 'Цены на нефть Brent', sentiment: 'bearish', impact: 'high' }
+            ];
+
+            return templates.map((item, i) => ({
+                id: i,
+                time: new Date(now.getTime() - i * 3600000),
+                title: item.title,
+                text: 'Данные временно недоступны',
+                impact: item.impact,
+                sentiment: item.sentiment
+            }));
+        }
+
+        function renderNews(news) {
+            const container = document.getElementById('newsList');
+            document.getElementById('newsCount').textContent = news.length;
+
+            if (news.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: #8b949e; padding: 20px;">Нет новостей</div>';
+                return;
+            }
+
+            container.innerHTML = news.map(item => {
+                const timeStr = item.time.toLocaleString('ru-RU', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+
+                const sentimentLabel = {
+                    'bullish': '📈 Бычья для Si',
+                    'bearish': '📉 Медвежья для Si',
+                    'neutral': '➡️ Нейтральная'
+                };
+
+                return `
+                    <div class="news-item ${item.impact}">
+                        <div class="news-time">${timeStr}</div>
+                        <div class="news-text"><strong>${item.title}</strong></div>
+                        <div class="news-text" style="font-size: 12px; color: #8b949e; margin-top: 4px;">${item.text}</div>
+                        <span class="news-sentiment sentiment-${item.sentiment}">${sentimentLabel[item.sentiment]}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateNewsInfluence(news) {
+            let bullishScore = 0;
+            let bearishScore = 0;
+
+            const now = new Date();
+
+            news.forEach(item => {
+                const hoursDiff = (now - item.time) / (1000 * 60 * 60);
+                const impactWeight = item.impact === 'high' ? 30 : item.impact === 'medium' ? 15 : 5;
+
+                // Свежие новости важнее
+                const recencyMultiplier = Math.max(0.1, 1 - hoursDiff / 48);
+
+                const score = impactWeight * recencyMultiplier;
+
+                if (item.sentiment === 'bullish') {
+                    bullishScore += score;
+                } else if (item.sentiment === 'bearish') {
+                    bearishScore += score;
+                }
+            });
+
+            // Итоговый счёт: положительный = бычий для Si, отрицательный = медвежий
+            const netScore = bullishScore - bearishScore;
+            analysisState.news.score = netScore;
+            analysisState.news.direction = netScore > 10 ? 'bullish' : netScore < -10 ? 'bearish' : 'neutral';
+            analysisState.news.items = news;
+        }
+
+        function filterNews(type, event) {
+            currentNewsFilter = type;
+
+            document.querySelectorAll('#newsBox .filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            if (event && event.target) {
+                event.target.classList.add('active');
+            }
+
+            let filtered = allNews;
+
+            if (type === 'bullish') {
+                filtered = allNews.filter(n => n.sentiment === 'bullish');
+            } else if (type === 'bearish') {
+                filtered = allNews.filter(n => n.sentiment === 'bearish');
+            }
+
+            renderNews(filtered);
+        }
+
+        function refreshNews() {
+            fetchNews();
+        }
+
+        // ==================== 4. РЕАЛТАЙМ ГРАФИК ==================
         function updateChartLive(price) {
             if (!candleSeries || !historyData.length) return;
 
@@ -356,7 +531,7 @@ async function fetchNews() {
             candleSeries.update(historyData[historyData.length - 1]);
         }
 
-        // ==================== 5. CHART RENDER ==================
+        // ==================== 5. ОТРИСОВКА ГРАФИКА ==================
         function renderChart(data) {
             const cont = document.getElementById('chart');
             cont.innerHTML = '';
@@ -395,7 +570,7 @@ async function fetchNews() {
             if(q.time) document.getElementById('lastTradeTime').innerText = "Сделка: " + new Date(q.time).toLocaleTimeString('ru-RU');
         }
 
-        // ==================== 7. ANALYSIS ==================
+        // ==================== 7. АНАЛИЗ ==================
         function calcTech() {
             if (historyData.length < 20) return null;
             const c = historyData.map(d=>d.close);
@@ -437,7 +612,7 @@ async function fetchNews() {
 
             let newsContext = "НОВОСТНОЙ ФОН:\n";
             if (allNews.length > 0) {
-                allNews.forEach((n, i) => newsContext += `${i+1}. ${n.title}\n`);
+                allNews.forEach((n, i) => newsContext += `${i+1}. ${n.title} (${n.sentiment === 'bullish' ? 'бычья' : n.sentiment === 'bearish' ? 'медвежья' : 'нейтр.'})\n`);
             } else {
                 newsContext += "Нет свежих новостей.\n";
             }
@@ -449,6 +624,8 @@ MACD: ${tech.macd.toFixed(2)}
 ATR: ${tech.atr.toFixed(2)}
 
  ${newsContext}
+
+Общий новостной счёт (бычий-медвежий): ${analysisState.news.score.toFixed(1)} (${analysisState.news.direction})
 
 Дай сигнал: ПОКУПКА/ПРОДАЖА/ДЕРЖАТЬ.
 План (ATR):
@@ -492,11 +669,11 @@ JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..
             }
         }
 
-        // ==================== 8. SCHEDULED UPDATES ==================
+        // ==================== 8. ПЛАНИРОВЩИК ОБНОВЛЕНИЙ ==================
         function scheduleNextCandleUpdate() {
             const now = new Date();
             const target = new Date(now);
-            target.setMinutes(16, 0, 0); // минуты = 16, секунды = 0, миллисекунды = 0
+            target.setMinutes(16, 0, 0); // минуты = 16, секунды = 0
             if (target <= now) {
                 target.setHours(target.getHours() + 1);
             }
@@ -508,7 +685,7 @@ JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..
             }, delay);
         }
 
-        // ==================== 9. AUTO ANALYSIS ==================
+        // ==================== 9. АВТОАНАЛИЗ ==================
         let autoAnalysisInterval = null;
         function startAutoAnalysis() {
             if (autoAnalysisInterval) clearInterval(autoAnalysisInterval);
@@ -520,7 +697,7 @@ JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..
                 } else {
                     console.log('Auto analysis skipped: no API key');
                 }
-            }, 300000); // 5 минут = 300000 мс
+            }, 300000); // 5 минут
         }
 
         // ==================== INIT ==================
