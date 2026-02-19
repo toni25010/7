@@ -230,51 +230,101 @@
         }
 
         // ==================== 3. NEWS (только Finam через rss2json) ==================
-        async function fetchNews() {
-            const list = document.getElementById('newsList');
-            list.innerHTML = '<div style="color:#8b949e">Загрузка Finam...</div>';
-            
-            const source = { name: 'Finam', url: 'https://www.finam.ru/analysis/conews/rsspoint' };
-            
-            allNews = [];
-            let newsHtml = '';
-            const now = new Date();
+async function fetchNews() {
+    const list = document.getElementById('newsList');
+    list.innerHTML = '<div style="color:#8b949e">Загрузка Finam и РБК...</div>';
+    
+    // Источники новостей
+    const sources = [
+        { name: 'Finam', url: 'https://www.finam.ru/analysis/conews/rsspoint' },
+        { name: 'РБК', url: 'https://rssexport.rbc.ru/rbcnews/news/20/full.rss' },
+        { name: 'РБК (alt)', url: 'https://static.feed.rbc.ru/rbc/logical/footer/news.rss' } // запасной
+    ];
 
+    // Прокси (сначала rss2json, потом corsproxy)
+    const proxies = [
+        { name: 'rss2json', fn: async (src) => {
+            const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(src.url)}`;
+            const res = await fetch(apiUrl);
+            const data = await res.json();
+            if (data.status !== 'ok') throw new Error('rss2json error');
+            return data.items || [];
+        }},
+        { name: 'corsproxy', fn: async (src) => {
+            const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(src.url)}`;
+            const res = await fetch(proxyUrl);
+            const text = await res.text();
+            const parser = new DOMParser();
+            const xml = parser.parseFromString(text, "text/xml");
+            const items = xml.querySelectorAll("item");
+            return Array.from(items).map(item => ({
+                title: item.querySelector('title')?.textContent || '',
+                link: item.querySelector('link')?.textContent || '',
+                pubDate: item.querySelector('pubDate')?.textContent || ''
+            }));
+        }}
+    ];
+
+    allNews = [];
+    let newsHtml = '';
+    const now = new Date();
+
+    for (const src of sources) {
+        let items = [];
+        let usedProxy = null;
+
+        for (const proxy of proxies) {
             try {
-                const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(source.url)}`;
-                const res = await fetch(apiUrl);
-                const data = await res.json();
-                
-                if (data.status === 'ok' && data.items) {
-                    const items = data.items.slice(0, 10);
-                    items.forEach(item => {
-                        const title = item.title;
-                        const link = item.link;
-                        const date = new Date(item.pubDate);
-                        const hoursAgo = (now - date) / 3600000;
-                        
-                        if (hoursAgo < 24) allNews.push({ title, link });
-                        
-                        const timeStr = hoursAgo < 1 ? 'Только что' : hoursAgo < 24 ? `${Math.round(hoursAgo)}ч назад` : date.toLocaleDateString('ru-RU');
-                        
-                        newsHtml += `
-                            <div class="news-item">
-                                <span class="news-time">${source.name} • ${timeStr}</span>
-                                <a href="${link}" target="_blank" style="color:var(--text);text-decoration:none;">${title}</a>
-                            </div>
-                        `;
-                    });
-                } else {
-                    throw new Error('Неверный ответ от rss2json');
+                console.log(`Trying ${proxy.name} for ${src.name}...`);
+                items = await proxy.fn(src);
+                if (items.length > 0) {
+                    usedProxy = proxy.name;
+                    break;
                 }
             } catch (e) {
-                console.error('Finam news error:', e);
-                newsHtml = '<div style="color:#d29922; font-size:11px; padding:5px;">Не удалось загрузить новости Finam.</div>';
-                allNews = [{ title: "Нет новостей Finam" }];
+                console.warn(`${proxy.name} failed for ${src.name}:`, e.message || e);
             }
-
-            list.innerHTML = newsHtml || '<div style="color:#d29922;">Нет новостей</div>';
         }
+
+        if (!usedProxy) {
+            console.error(`All proxies failed for ${src.name}`);
+            continue;
+        }
+
+        console.log(`Success with ${usedProxy} for ${src.name}, got ${items.length} items`);
+
+        items.slice(0, 5).forEach(item => {
+            const title = item.title;
+            const link = item.link;
+            let date = new Date();
+            if (item.pubDate) {
+                date = new Date(item.pubDate);
+                if (isNaN(date)) date = new Date();
+            }
+            const hoursAgo = (now - date) / 3600000;
+
+            if (hoursAgo < 24) allNews.push({ title, link, source: src.name });
+
+            const timeStr = hoursAgo < 1 ? 'Только что' : hoursAgo < 24 ? `${Math.round(hoursAgo)}ч назад` : date.toLocaleDateString('ru-RU');
+
+            newsHtml += `
+                <div class="news-item">
+                    <span class="news-time">${src.name} • ${timeStr}</span>
+                    <a href="${link}" target="_blank" style="color:var(--text);text-decoration:none;">${title}</a>
+                </div>
+            `;
+        });
+        
+        if (allNews.length >= 10) break; // ограничим общее количество новостей
+    }
+
+    if (newsHtml) {
+        list.innerHTML = newsHtml;
+    } else {
+        list.innerHTML = '<div style="color:#d29922; font-size:11px; padding:5px;">Не удалось загрузить новости.</div>';
+        allNews = [{ title: "Нет свежих новостей" }];
+    }
+}
 
         // ==================== 4. REALTIME CHART ==================
         function updateChartLive(price) {
